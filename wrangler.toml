@@ -1,0 +1,14 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "notion-mcp-server"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NOTION_API_VERSION = "2022-06-28"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+# - MCP_ACCESS_TOKEN        (bearer token for MCP auth)
+# - NOTION_TOKEN_PERSONAL   (personal workspace integration token)
+# - NOTION_TOKEN_KOODU      (koodu workspace integration token)   [Phase 4]
+# - NOTION_TOKEN_WAVES      (waves workspace integration token)   [Phase 3]

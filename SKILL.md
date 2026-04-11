@@ -299,6 +299,8 @@ move_page {
 #### `views`
 Manages database views (tabs) with consolidated create/update/delete actions. Controls how rows are displayed.
 
+**CRITICAL: Use the database ID from `list_databases`, NOT from `search_pages`.** On API v2025-09-03, `list_databases` returns data_source IDs which are what the views tool needs. `search_pages` returns a different page ID that will fail. Always call `list_databases` first to get the correct ID for views.
+
 **Action parameter:** `create`, `update`, or `delete`.
 **Types:** `table` (spreadsheet), `board` (kanban), `calendar` (date-based), `list` (simple), `timeline` (gantt), `gallery` (cards).
 
@@ -486,6 +488,7 @@ When providing `content`, `append_content`, or `replace_content`, use these patt
 | 30K character response limit | Server design | Large pages get truncated. Use targeted queries instead of full page reads. |
 | Relations resolve by title match | Server design | If two pages in the related DB have the same title, the first match wins. Use page ID for precision. |
 | People resolve by display name | Server design | Name must match exactly. Server caches user list for 5 minutes. |
+| Two different IDs per database | Notion API v2025-09-03 | `list_databases` returns data_source IDs, `search_pages` returns page IDs. Use `list_databases` IDs for views and query_database. Both work for read_page and update_page. |
 
 ---
 

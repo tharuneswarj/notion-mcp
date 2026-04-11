@@ -4,7 +4,7 @@ A custom MCP (Model Context Protocol) server that connects multiple Notion works
 
 ## What It Does
 
-- Serves 14 MCP tools per workspace over Streamable HTTP (stateless JSON-RPC 2.0)
+- Serves 15 MCP tools per workspace over Streamable HTTP (stateless JSON-RPC 2.0)
 - Converts between Markdown and Notion blocks bidirectionally
 - Handles property formatting server-side - Claude sends flat key-values like `{"Status": "Done", "Priority": "P1"}`, the server converts to Notion's nested API format
 - Resolves relation and people fields by name (no UUIDs needed from Claude)
@@ -24,10 +24,9 @@ Each path is registered as a separate custom connector in Claude.ai. Claude rout
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
-## Tools (14 per workspace)
+## Tools (15 per workspace)
 
 ### Read (6)
-
 | Tool | Purpose |
 |------|---------|
 | `search_pages` | Full-text search across workspace (paginated) |
@@ -37,18 +36,22 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 | `list_databases` | List all databases with property schemas |
 | `get_database_schema` | Full schema with option values for one database |
 
-### Write (8)
-
+### Write (6)
 | Tool | Purpose |
 |------|---------|
-| `create_page` | Create standalone pages or database rows with typed properties |
-| `update_page` | Update properties, title, content (append/replace), or archive |
+| `create_page` | Create pages or database rows with icon, cover, typed properties |
+| `update_page` | Update properties, title, content, icon, cover, or archive |
 | `update_database` | Add/rename/remove columns, update select options |
-| `create_database` | Create a new database with typed columns inside a parent page |
-| `duplicate_page` | Copy a page or database row with all properties and content |
+| `create_database` | Create a new database with typed columns |
+| `duplicate_page` | Copy a page with properties and content |
 | `move_page` | Re-parent a page to another page or database |
-| `create_view` | Create database views (table, board, calendar, list, timeline, gallery) |
-| `update_view` | Modify a view's type, title, filters, or sorts |
+
+### Views, Comments & Files (3)
+| Tool | Purpose |
+|------|---------|
+| `views` | Create/update/delete database views (table, board, calendar, list, timeline, gallery) |
+| `comments` | Get/create/reply to page comments |
+| `upload_file` | Upload files (images, PDFs) to a page via URL or base64 |
 
 ## Setup
 
@@ -120,10 +123,12 @@ These are Notion API limitations, not server limitations:
 
 - Cannot create root-level workspace pages (internal integrations require a parent page)
 - Cannot set page fonts (default/serif/mono) - Notion UI-only setting
+- Notion-hosted file blocks cannot be duplicated (signed URLs expire)
+- Workspace-level page creation requires parent_id on v2025-09-03
 
 ## Tech Stack
 
 - **Runtime:** Cloudflare Workers (free tier)
 - **Language:** TypeScript
 - **Protocol:** MCP over Streamable HTTP (JSON-RPC 2.0, no SDK dependency)
-- **API:** Notion API v2022-06-28
+- **API:** Notion API v2025-09-03

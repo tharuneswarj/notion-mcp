@@ -1,5 +1,6 @@
 /**
  * Notion API client for Cloudflare Workers.
+ * API v2025-09-03+ with data_source paradigm.
  * Uses native fetch (no axios needed in Workers runtime).
  */
 
@@ -9,15 +10,19 @@ import type {
   NotionBlock,
   NotionBlocksResponse,
   NotionDatabaseQueryResponse,
+  NotionComment,
+  NotionCommentsResponse,
+  NotionFileUpload,
 } from "./types.js";
 
 const NOTION_BASE = "https://api.notion.com/v1";
+const MAX_RETRIES = 3;
 
 export class NotionClient {
   private token: string;
   private version: string;
 
-  constructor(token: string, version: string = "2022-06-28") {
+  constructor(token: string, version: string = "2025-09-03") {
     this.token = token;
     this.version = version;
   }
@@ -36,22 +41,63 @@ export class NotionClient {
     body?: unknown
   ): Promise<T> {
     const url = `${NOTION_BASE}${path}`;
-    const opts: RequestInit = {
-      method,
-      headers: this.headers(),
-    };
-    if (body) {
-      opts.body = JSON.stringify(body);
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const opts: RequestInit = {
+        method,
+        headers: this.headers(),
+      };
+      if (body) {
+        opts.body = JSON.stringify(body);
+      }
+
+      const res = await fetch(url, opts);
+
+      // Handle rate limiting with retry
+      if (res.status === 429 && attempt < MAX_RETRIES - 1) {
+        const retryAfter = res.headers.get("Retry-After");
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new NotionApiError(res.status, errBody, path);
+      }
+
+      return (await res.json()) as T;
     }
 
-    const res = await fetch(url, opts);
+    // Should never reach here, but TypeScript needs it
+    throw new NotionApiError(500, "Max retries exceeded", path);
+  }
+
+  /**
+   * Raw request without JSON content-type (for file uploads).
+   */
+  private async requestRaw(
+    method: string,
+    path: string,
+    body: FormData
+  ): Promise<Record<string, unknown>> {
+    const url = `${NOTION_BASE}${path}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        "Notion-Version": this.version,
+        // Do NOT set Content-Type - let fetch set multipart boundary
+      },
+      body,
+    });
 
     if (!res.ok) {
       const errBody = await res.text();
       throw new NotionApiError(res.status, errBody, path);
     }
 
-    return (await res.json()) as T;
+    return (await res.json()) as Record<string, unknown>;
   }
 
   // ─── Search ─────────────────────────────────────────────────────────────
@@ -107,7 +153,8 @@ export class NotionClient {
   async createPage(
     parentId: string | null,
     title: string,
-    isDatabase: boolean = false
+    isDatabase: boolean = false,
+    options?: { icon?: unknown; cover?: unknown }
   ): Promise<NotionPage> {
     const parent = isDatabase
       ? { database_id: parentId }
@@ -115,11 +162,15 @@ export class NotionClient {
         ? { page_id: parentId }
         : { type: "workspace", workspace: true };
 
-    const properties = isDatabase
-      ? { title: { title: [{ text: { content: title } }] } }
-      : { title: { title: [{ text: { content: title } }] } };
+    const properties = {
+      title: { title: [{ text: { content: title } }] },
+    };
 
-    return this.request<NotionPage>("POST", "/pages", { parent, properties });
+    const body: Record<string, unknown> = { parent, properties };
+    if (options?.icon) body.icon = options.icon;
+    if (options?.cover) body.cover = options.cover;
+
+    return this.request<NotionPage>("POST", "/pages", body);
   }
 
   async updatePage(
@@ -128,6 +179,8 @@ export class NotionClient {
       title?: string;
       archived?: boolean;
       properties?: Record<string, unknown>;
+      icon?: unknown;
+      cover?: unknown;
     }
   ): Promise<NotionPage> {
     const body: Record<string, unknown> = {};
@@ -142,6 +195,12 @@ export class NotionClient {
     }
     if (updates.archived !== undefined) {
       body.archived = updates.archived;
+    }
+    if (updates.icon !== undefined) {
+      body.icon = updates.icon;
+    }
+    if (updates.cover !== undefined) {
+      body.cover = updates.cover;
     }
 
     return this.request<NotionPage>("PATCH", `/pages/${pageId}`, body);
@@ -220,11 +279,24 @@ export class NotionClient {
     if (sorts) body.sorts = sorts;
     if (startCursor) body.start_cursor = startCursor;
 
-    return this.request<NotionDatabaseQueryResponse>(
-      "POST",
-      `/databases/${databaseId}/query`,
-      body
-    );
+    // Try data_source endpoint first (v2025-09-03+), fall back to database endpoint
+    try {
+      return await this.request<NotionDatabaseQueryResponse>(
+        "POST",
+        `/data_sources/${databaseId}/query`,
+        body
+      );
+    } catch (err) {
+      if (err instanceof NotionApiError && err.status === 404) {
+        // Fall back to legacy endpoint for compatibility
+        return this.request<NotionDatabaseQueryResponse>(
+          "POST",
+          `/databases/${databaseId}/query`,
+          body
+        );
+      }
+      throw err;
+    }
   }
 
   async listDatabases(
@@ -233,17 +305,72 @@ export class NotionClient {
   ): Promise<NotionSearchResult> {
     return this.searchAll(query, {
       property: "object",
-      value: "database",
+      value: "data_source",
     }, maxResults);
   }
 
   async getDatabase(
     databaseId: string
   ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(
-      "GET",
-      `/databases/${databaseId}`
-    );
+    try {
+      return await this.request<Record<string, unknown>>(
+        "GET",
+        `/databases/${databaseId}`
+      );
+    } catch {
+      // On v2025-09-03+, the ID might be a data_source_id.
+      // Fetch the data_source to get the real database_id from parent.
+      const ds = await this.request<Record<string, unknown>>(
+        "GET",
+        `/data_sources/${databaseId}`
+      );
+      const parent = ds.parent as Record<string, string> | undefined;
+      const realDbId = parent?.database_id;
+      if (realDbId && realDbId.replace(/-/g, "") !== databaseId.replace(/-/g, "")) {
+        // Re-fetch using the real database_id (has properties)
+        return this.request<Record<string, unknown>>(
+          "GET",
+          `/databases/${realDbId}`
+        );
+      }
+      return ds;
+    }
+  }
+
+  /**
+   * Resolve a database_id to its data_source_id.
+   * On v2025-09-03+, databases contain data_source references.
+   * For single-table databases, the data_source_id is in the response.
+   */
+  /**
+   * Resolve the real database_id and data_source_id for the views API.
+   * On v2025-09-03, list_databases returns data_source objects.
+   * The user-facing ID is the data_source_id.
+   * The real database_id is in parent.database_id.
+   */
+  async resolveViewIds(userFacingId: string): Promise<{ realDatabaseId: string; dataSourceId: string }> {
+    const normalizedId = userFacingId.replace(/-/g, "");
+    const searchResult = await this.searchAll("", {
+      property: "object",
+      value: "data_source",
+    }, 200);
+
+    for (const item of searchResult.results) {
+      const itemId = (item.id || "").replace(/-/g, "");
+      if (itemId === normalizedId) {
+        const parent = item.parent as Record<string, string> | undefined;
+        const parentDbId = parent?.database_id;
+        if (parentDbId) {
+          return {
+            realDatabaseId: parentDbId.replace(/-/g, ""),
+            dataSourceId: normalizedId,
+          };
+        }
+      }
+    }
+
+    // Fallback: assume user passed database_id, use same for both
+    return { realDatabaseId: normalizedId, dataSourceId: normalizedId };
   }
 
   async updateDatabase(
@@ -292,8 +419,8 @@ export class NotionClient {
 
     // Determine parent for the copy
     let parentBody: Record<string, unknown>;
-    if (parent.type === "database_id") {
-      parentBody = { database_id: parent.database_id as string };
+    if (parent.type === "database_id" || parent.type === "data_source_id") {
+      parentBody = { database_id: (parent.database_id || parent.data_source_id) as string };
     } else if (parent.type === "page_id") {
       parentBody = { page_id: parent.page_id as string };
     } else {
@@ -302,7 +429,7 @@ export class NotionClient {
 
     // For database rows, copy all writable properties
     const newProps: Record<string, unknown> = {};
-    if (parent.type === "database_id") {
+    if (parent.type === "database_id" || parent.type === "data_source_id") {
       for (const [key, prop] of Object.entries(props)) {
         const pType = prop.type as string;
         // Skip read-only and auto-generated properties
@@ -357,7 +484,19 @@ export class NotionClient {
    * Recursively handles children.
    */
   private stripBlockIds(blocks: NotionBlock[]): unknown[] {
-    return blocks.map((block) => {
+    return blocks.filter((block) => {
+      const type = block.type;
+      const data = block[type] as Record<string, unknown> | undefined;
+
+      // Skip image/file/video/pdf blocks that use Notion-hosted "file" type
+      // (they can't be re-created because the signed URLs expire and
+      // v2025-09-03 requires file_upload instead)
+      if (["image", "file", "video", "pdf", "audio"].includes(type)) {
+        if (data?.type === "file") return false;
+      }
+
+      return true;
+    }).map((block) => {
       const type = block.type;
       const data = block[type] as Record<string, unknown> | undefined;
       if (!data) return { type, [type]: {} };
@@ -417,6 +556,55 @@ export class NotionClient {
       `/views/${viewId}`,
       updates
     );
+  }
+
+  async deleteView(viewId: string): Promise<void> {
+    await this.request("DELETE", `/views/${viewId}`);
+  }
+
+  // ─── Comments ──────────────────────────────────────────────────────────
+
+  async getComments(
+    blockId: string,
+    pageSize: number = 100,
+    startCursor?: string
+  ): Promise<NotionCommentsResponse> {
+    let path = `/comments?block_id=${blockId}&page_size=${pageSize}`;
+    if (startCursor) {
+      path += `&start_cursor=${startCursor}`;
+    }
+    return this.request<NotionCommentsResponse>("GET", path);
+  }
+
+  async createComment(
+    body: Record<string, unknown>
+  ): Promise<NotionComment> {
+    return this.request<NotionComment>("POST", "/comments", body);
+  }
+
+  // ─── File Upload ───────────────────────────────────────────────────────
+
+  async createFileUpload(
+    filename: string,
+    contentType: string
+  ): Promise<NotionFileUpload> {
+    return this.request<NotionFileUpload>("POST", "/file_uploads", {
+      filename,
+      content_type: contentType,
+    });
+  }
+
+  async sendFileContent(
+    uploadId: string,
+    fileData: ArrayBuffer,
+    filename: string,
+    contentType: string
+  ): Promise<Record<string, unknown>> {
+    const formData = new FormData();
+    const blob = new Blob([fileData], { type: contentType });
+    formData.append("file", blob, filename);
+
+    return this.requestRaw("POST", `/file_uploads/${uploadId}/send`, formData);
   }
 
   // ─── Blocks (individual) ─────────────────────────────────────────────

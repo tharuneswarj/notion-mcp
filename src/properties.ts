@@ -641,9 +641,16 @@ export async function fetchDatabaseSchema(
   }
 
   if (!properties || typeof properties !== "object" || Object.keys(properties).length === 0) {
+    // Diagnostic: dump the data_sources structure to understand the API response
+    const dataSources = db.data_sources as Array<Record<string, unknown>> | undefined;
+    const dsInfo = dataSources?.map((ds, i) => {
+      const dsKeys = Object.keys(ds).join(", ");
+      const propsKeys = ds.properties ? Object.keys(ds.properties as Record<string, unknown>).join(", ") : "NONE";
+      return `ds[${i}]: id=${ds.id}, keys=[${dsKeys}], propKeys=[${propsKeys}]`;
+    }).join(" | ") ?? "NO_DATA_SOURCES";
     throw new Error(
       `Database ${databaseId} returned no property schema. ` +
-      `API may have changed. Object type: ${db.object ?? "unknown"}`
+      `Object type: ${db.object ?? "unknown"}. data_sources: ${dsInfo}`
     );
   }
 

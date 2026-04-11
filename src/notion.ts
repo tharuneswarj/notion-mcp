@@ -156,10 +156,23 @@ export class NotionClient {
     isDatabase: boolean = false,
     options?: { icon?: unknown; cover?: unknown }
   ): Promise<NotionPage> {
+    let resolvedParentId = parentId;
+
+    // On v2025-09-03, if creating a database row, the ID from list_databases
+    // is a data_source_id. POST /pages needs the real database_id.
+    if (isDatabase && parentId) {
+      try {
+        const { realDatabaseId } = await this.resolveViewIds(parentId);
+        resolvedParentId = realDatabaseId;
+      } catch {
+        // Resolution failed - use as-is
+      }
+    }
+
     const parent = isDatabase
-      ? { database_id: parentId }
-      : parentId
-        ? { page_id: parentId }
+      ? { database_id: resolvedParentId }
+      : resolvedParentId
+        ? { page_id: resolvedParentId }
         : { type: "workspace", workspace: true };
 
     const properties = {
@@ -392,11 +405,41 @@ export class NotionClient {
     databaseId: string,
     updates: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(
+    // On v2025-09-03, databaseId might be a data_source_id (from list_databases)
+    // or a real database_id (from page.parent). Resolve both.
+    let realDbId = databaseId;
+    let dsId: string | null = null;
+
+    try {
+      const resolved = await this.resolveViewIds(databaseId);
+      if (resolved.realDatabaseId !== resolved.dataSourceId) {
+        realDbId = resolved.realDatabaseId;
+        dsId = resolved.dataSourceId;
+      }
+    } catch {
+      // Resolution failed - use as-is
+    }
+
+    // Patch the database (handles title, description, etc.)
+    const result = await this.request<Record<string, unknown>>(
       "PATCH",
-      `/databases/${databaseId}`,
+      `/databases/${realDbId}`,
       updates
     );
+
+    // On v2025-09-03, property updates must also go through the data_source
+    if (updates.properties) {
+      const targetDsId = dsId || await this.resolveDataSourceIdForDb(realDbId);
+      if (targetDsId) {
+        await this.request<Record<string, unknown>>(
+          "PATCH",
+          `/data_sources/${targetDsId}`,
+          { properties: updates.properties }
+        );
+      }
+    }
+
+    return result;
   }
 
   async createDatabase(
@@ -404,11 +447,45 @@ export class NotionClient {
     title: string,
     properties: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("POST", "/databases", {
+    // Create with just the title property - v2025-09-03 ignores other properties
+    const db = await this.request<Record<string, unknown>>("POST", "/databases", {
       parent: { type: "page_id", page_id: parentPageId },
       title: [{ type: "text", text: { content: title } }],
-      properties,
+      properties: { Name: { title: {} } },
     });
+
+    // Now add the real properties via the data_source endpoint
+    const { Name: _title, ...extraProps } = properties;
+    if (Object.keys(extraProps).length > 0) {
+      const dataSources = db.data_sources as Array<Record<string, unknown>> | undefined;
+      const dsId = dataSources?.[0]?.id as string | undefined;
+      if (dsId) {
+        await this.request<Record<string, unknown>>(
+          "PATCH",
+          `/data_sources/${dsId}`,
+          { properties: extraProps }
+        );
+      }
+    }
+
+    return db;
+  }
+
+  /**
+   * Resolve the data_source ID for a given database ID.
+   * On v2025-09-03, databases have a data_sources array.
+   */
+  private async resolveDataSourceIdForDb(databaseId: string): Promise<string | null> {
+    try {
+      const db = await this.request<Record<string, unknown>>(
+        "GET",
+        `/databases/${databaseId}`
+      );
+      const dataSources = db.data_sources as Array<Record<string, unknown>> | undefined;
+      return (dataSources?.[0]?.id as string) || null;
+    } catch {
+      return null;
+    }
   }
 
   // ─── Page Operations ────────────────────────────────────────────────────

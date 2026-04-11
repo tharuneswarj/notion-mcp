@@ -13,6 +13,49 @@ This is the reference guide for the custom Notion MCP server deployed at `notion
 
 ---
 
+## ⚠️ CRITICAL: Data Source Paradigm (Notion API v2025-09-03)
+
+**READ THIS SECTION FIRST. Every tool interaction depends on understanding this.**
+
+Notion API v2025-09-03 introduced a "data_source" layer between databases and their properties. This affects how IDs work across the server:
+
+### The Dual-ID System
+
+Every database in Notion now has TWO IDs:
+
+| ID Type | Where You Get It | What It Represents |
+|---|---|---|
+| **data_source_id** | `list_databases`, `query_database` results | The data layer that holds properties, rows, and schema |
+| **database_id** | `page.parent.database_id`, Notion URLs | The container object (metadata, title, icon) |
+
+**These are DIFFERENT IDs for the SAME database.** Mixing them up causes "not found" errors.
+
+### What the Server Does Automatically
+
+**The server handles all ID resolution transparently.** You do NOT need to manually convert between ID types. Specifically:
+
+- **`query_database`** - accepts either ID type (tries data_source endpoint first, falls back to database endpoint)
+- **`get_database_schema`** - accepts either ID type (resolves through data_sources to find properties)
+- **`create_page`** with `database_id` - accepts either ID type (resolves data_source_id to real database_id automatically)
+- **`update_database`** - accepts either ID type (writes to both database AND data_source for property changes)
+- **`create_database`** - creates DB then patches data_source for properties (all automatic)
+- **`views`** - accepts either ID type (resolves both IDs internally via `resolveViewIds`)
+- **`update_page`** with properties - accepts page ID, fetches parent DB ID automatically for schema lookup
+
+### The One Rule You Must Follow
+
+**Use IDs exactly as the tools return them. Do not try to convert or look up alternative IDs.**
+
+- `list_databases` returns data_source_ids → use these for `query_database`, `get_database_schema`, `views`, `create_page`, and `update_database`
+- `search_pages` returns page_ids → use these for `read_page`, `update_page`, `get_children`, `comments`, and `duplicate_page`
+- Both work interchangeably for most operations because the server resolves them
+
+### Why This Matters
+
+On v2025-09-03, `GET /databases/{id}` returns NO properties - they moved into data_sources. `POST /databases` silently ignores non-title properties. `PATCH /databases/{id}` for properties returns success but doesn't update. The server works around ALL of these by routing property operations through the `/data_sources/` endpoint automatically.
+
+---
+
 ## Connector Mapping
 
 Each workspace has its own connector. Claude routes to the right workspace by which connector's tools it calls.
@@ -299,7 +342,7 @@ move_page {
 #### `views`
 Manages database views (tabs) with consolidated create/update/delete actions. Controls how rows are displayed.
 
-**CRITICAL: Use the database ID from `list_databases`, NOT from `search_pages`.** On API v2025-09-03, `list_databases` returns data_source IDs which are what the views tool needs. `search_pages` returns a different page ID that will fail. Always call `list_databases` first to get the correct ID for views.
+**Best practice:** Use the database ID from `list_databases` for creating views. The server resolves IDs automatically, but `list_databases` is the most reliable source for database IDs. See the Data Source Paradigm section at the top for details.
 
 **Action parameter:** `create`, `update`, or `delete`.
 **Types:** `table` (spreadsheet), `board` (kanban), `calendar` (date-based), `list` (simple), `timeline` (gantt), `gallery` (cards).
@@ -481,14 +524,16 @@ When providing `content`, `append_content`, or `replace_content`, use these patt
 |---|---|---|
 | Cannot create root-level workspace pages | Notion API | Always provide `parent_id` |
 | Cannot set page fonts (default/serif/mono) | Notion API | Change in Notion UI manually |
-| Cannot create workspace-level pages on API v2025-09-03 | Notion API | Always provide parent_id |
-| Notion-hosted file blocks cannot be duplicated | Server design | duplicate_page skips images uploaded via Notion UI (only external URLs supported) |
+| Notion-hosted file blocks cannot be duplicated | Server design | duplicate_page skips images uploaded via Notion UI (only external URLs work) |
+| Cannot archive databases via API | Notion API | Only pages can be archived with update_page. Databases must be trashed manually in Notion UI. |
 | No authentication on server | Design choice | URL is obscure. Will add Cloudflare Access if needed. |
 | Connector tool caching | Claude.ai behavior | If new tools don't appear after server update, disconnect and recreate connector |
 | 30K character response limit | Server design | Large pages get truncated. Use targeted queries instead of full page reads. |
 | Relations resolve by title match | Server design | If two pages in the related DB have the same title, the first match wins. Use page ID for precision. |
 | People resolve by display name | Server design | Name must match exactly. Server caches user list for 5 minutes. |
-| Two different IDs per database | Notion API v2025-09-03 | `list_databases` returns data_source IDs, `search_pages` returns page IDs. Use `list_databases` IDs for views and query_database. Both work for read_page and update_page. |
+| Upload capped at 20MB per file | Notion API | Split large files or use external links |
+| Views API: no update/delete for default view | Notion API | Only custom views can be modified or deleted |
+| Link previews not supported | Notion API | Use bookmark blocks (bare URLs) instead |
 
 ---
 

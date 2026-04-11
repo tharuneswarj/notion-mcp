@@ -209,7 +209,7 @@ Attach files to any Notion page - images, PDFs, documents up to 20MB.
 - **No root-level pages** - every page needs a parent. Claude can't create a page floating at the workspace top level.
 - **Notion-uploaded images can't be copied** - when duplicating a page, images uploaded through the Notion UI are skipped (only external URL images survive).
 - **File upload cap: 20MB** - for larger files, upload directly through Notion.
-- **Views: create only** - update and delete view support is limited on the current API.
+- **Views: create, update, and delete** - all work, but the default view of a database cannot be deleted.
 - **Search is title + body only** - you can't search by property values (e.g., "find all tasks assigned to Tharun"). Use query_database with filters for that.
 - **Some URLs block upload** - sites like Wikipedia block non-browser requests. If a URL fails, try a different source or upload manually.
 

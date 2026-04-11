@@ -128,32 +128,43 @@ After views were working, duplicate_page started failing on pages with Notion-up
 
 ---
 
-## v3.0.1 - Property Update Fix (Session 7)
+## v3.0.1 - Comprehensive Data Source Fixes (Session 7)
 
-### Bug
-Property updates on database rows (via update_page with properties) failed with "Cannot read properties of undefined (reading 'Status')".
+### Overview
+This was the most complex debugging session - four separate bugs all caused by the same root issue: Notion API v2025-09-03 moved ALL property operations to the `/data_sources/` endpoint, but the `/databases/` endpoint still returns 200 with `{object: "database"}` (no 404!), making failures silent and hard to detect.
 
-### Root Cause
-On API v2025-09-03, `page.parent.database_id` may return a data_source_id rather than a real database_id. When `fetchDatabaseSchema` calls `getDatabase(dataSourceId)`, the `/databases/` endpoint 404s. The fallback hits `/data_sources/` which returns a data_source object - but data_source objects don't have a `properties` field. So `schema.properties` is undefined and the property lookup crashes.
+### Bug 1: Property Update Crash
+**Symptom:** `update_page` with properties failed with "Cannot read properties of undefined (reading 'Status')".
+**Root Cause:** `GET /databases/{data_source_id}` returns 200 with `object: "database"` but NO `properties` key. The response has a `data_sources` array instead. Since there's no 404, the catch block never runs.
+**Fix:** `fetchDatabaseSchema` in `properties.ts` now checks `db.data_sources[0]` for embedded properties, and fetches `GET /data_sources/{id}` as fallback. Also made `NotionClient.request()` public so fetchDatabaseSchema can call it directly.
 
-### Fix
-Updated `getDatabase()` in `notion.ts`: after the data_source fallback, check if the response has a `parent.database_id` that differs from the input ID. If so, re-fetch using the real database_id (which does have properties).
+### Bug 2: create_database Silently Dropping Properties
+**Symptom:** `create_database` with 5 properties returns success showing all 5, but `get_database_schema` only shows "Name" (the title property).
+**Root Cause:** `POST /databases` on v2025-09-03 silently ignores all non-title properties.
+**Fix:** `createDatabase()` now creates DB with just the title property, then PATCHes `/data_sources/{ds_id}` with the remaining properties.
 
-```typescript
-async getDatabase(databaseId: string): Promise<Record<string, unknown>> {
-  try {
-    return await this.request("GET", `/databases/${databaseId}`);
-  } catch {
-    const ds = await this.request("GET", `/data_sources/${databaseId}`);
-    const parent = ds.parent as Record<string, string> | undefined;
-    const realDbId = parent?.database_id;
-    if (realDbId && realDbId.replace(/-/g, "") !== databaseId.replace(/-/g, "")) {
-      return this.request("GET", `/databases/${realDbId}`);
-    }
-    return ds;
-  }
-}
-```
+### Bug 3: update_database Not Updating Properties
+**Symptom:** `update_database` to add columns returns success but columns don't appear.
+**Root Cause:** `PATCH /databases/{id}` with properties returns success but doesn't actually write them on v2025-09-03.
+**Fix:** `updateDatabase()` now does a dual write - PATCHes both `/databases/{real_db_id}` (for title/description) AND `/data_sources/{ds_id}` (for properties).
+
+### Bug 4: create_page Failing with list_databases IDs
+**Symptom:** `create_page` with `database_id` from `list_databases` fails with "Page or database not found".
+**Root Cause:** `POST /pages` requires the real database_id, not a data_source_id. `list_databases` returns data_source_ids.
+**Fix:** `createPage()` now calls `resolveViewIds()` to convert data_source_id to real database_id before creating the page.
+
+### Key Technical Discovery
+On v2025-09-03, `/databases/{id}` is essentially a read-only metadata container. ALL property-related operations (read schema, create properties, update properties) must go through `/data_sources/{id}`. The dangerous part is that `/databases/` returns 200 for data_source_ids - it doesn't 404, making it impossible to detect the wrong endpoint via error handling alone. You have to check for the presence of the `properties` key.
+
+### Files Changed
+- `src/notion.ts` - getDatabase(), createDatabase(), updateDatabase(), createPage() all rewritten; new resolveDataSourceIdForDb() helper; request() made public
+- `src/properties.ts` - fetchDatabaseSchema() complete rewrite with data_source fallback chain
+- `src/tools.ts` - update_page handler checks both parent.database_id and parent.data_source_id
+- `src/index.ts` - SERVER_VERSION bumped to "3.0.1"
+- `SKILL.md` - Added comprehensive Data Source Paradigm section
+
+### End-to-End Test Results (all 15 tools verified)
+list_databases ✅ | search_pages ✅ | get_children ✅ | read_page ✅ | get_database_schema ✅ | query_database ✅ | create_page (standalone) ✅ | create_page (database row with data_source_id) ✅ | update_page (properties) ✅ | create_database ✅ | update_database ✅ | views create ✅ | views delete ✅ | comments create ✅ | comments get ✅ | duplicate_page ✅ | move_page ✅ | upload_file ✅
 
 ---
 

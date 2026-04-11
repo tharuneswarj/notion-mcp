@@ -1,10 +1,13 @@
 /**
  * MCP Tool definitions and execution logic.
- * 9 tools per workspace - comprehensive Notion access with smart property handling.
+ * v3.0 - API v2025-09-03+ with data_source paradigm.
  *
- * Tools:
+ * Tools (consolidated for token efficiency):
  *   READ:   search_pages, read_page, get_children, query_database, list_databases, get_database_schema
- *   WRITE:  create_page, update_page, update_database, create_database, duplicate_page, move_page, create_view, update_view
+ *   WRITE:  create_page, update_page, update_database, create_database, duplicate_page, move_page
+ *   VIEWS:  views (action: create/update/delete)
+ *   SOCIAL: comments (action: get/create/reply)
+ *   FILES:  upload_file
  */
 
 import { NotionClient, NotionApiError } from "./notion.js";
@@ -224,6 +227,16 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
           description:
             "Markdown content for the page body. Supports headings, lists, to-dos, code blocks, quotes, callouts, tables, dividers, images, and bookmarks.",
         },
+        icon: {
+          type: "string",
+          description:
+            "Page icon. Use an emoji (e.g., '🚀') or an external URL for a custom icon image.",
+        },
+        cover_url: {
+          type: "string",
+          description:
+            "Cover image URL for the page banner at the top.",
+        },
       },
       required: ["title"],
     },
@@ -268,6 +281,16 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
           type: "boolean",
           description:
             "Set to true to archive (soft-delete) the page, false to unarchive.",
+        },
+        icon: {
+          type: "string",
+          description:
+            "Page icon. Use an emoji (e.g., '🚀') or an external URL for a custom icon image.",
+        },
+        cover_url: {
+          type: "string",
+          description:
+            "Cover image URL for the page banner at the top.",
         },
       },
       required: ["page_id"],
@@ -404,39 +427,45 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
   },
   {
-    name: "create_view",
+    name: "views",
     description:
-      "Create a new view for a database. Views control how database rows are displayed - as a table, board (kanban), calendar, list, timeline, or gallery. You can set filters, sorts, and which properties are visible. The database must already exist.",
+      "Manage database views (tabs). Actions: 'create' a new view, 'update' an existing view's type/name/filters/sorts, or 'delete' a view. View types: table, board (kanban), calendar, list, timeline, gallery. Use list_databases or query_database to find database IDs. Views control how rows are displayed without changing the data.",
     inputSchema: {
       type: "object",
       properties: {
+        action: {
+          type: "string",
+          enum: ["create", "update", "delete"],
+          description: "What to do: create a new view, update an existing one, or delete one.",
+        },
         database_id: {
           type: "string",
-          description: "Database ID to create the view for.",
+          description: "Database ID (required for 'create').",
+        },
+        view_id: {
+          type: "string",
+          description: "View ID (required for 'update' and 'delete').",
         },
         type: {
           type: "string",
           enum: ["table", "board", "calendar", "list", "timeline", "gallery"],
-          description:
-            "View type. 'table' for spreadsheet, 'board' for kanban, 'calendar' for date-based, 'list' for simple list, 'timeline' for gantt-style, 'gallery' for card grid.",
+          description: "View type (required for 'create', optional for 'update').",
         },
         title: {
           type: "string",
-          description: "Name for the view (shown as a tab in Notion).",
+          description: "View name shown as a tab in Notion (required for 'create', optional for 'update').",
         },
         filter: {
           type: "object",
-          description:
-            'Optional Notion filter. Same syntax as query_database filters. Example: {"property": "Status", "status": {"equals": "In progress"}}.',
+          description: 'Notion filter. Same syntax as query_database. Example: {"property": "Status", "status": {"equals": "In progress"}}.',
         },
         sorts: {
           type: "array",
-          description:
-            'Optional sort array. Same syntax as query_database sorts. Example: [{"property": "Due Date", "direction": "ascending"}].',
+          description: 'Sort array. Example: [{"property": "Due Date", "direction": "ascending"}].',
           items: { type: "object" },
         },
       },
-      required: ["database_id", "type", "title"],
+      required: ["action"],
     },
     annotations: {
       readOnlyHint: false,
@@ -446,36 +475,68 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
   },
   {
-    name: "update_view",
+    name: "comments",
     description:
-      "Update an existing database view. Can change the view type, title, filters, and sorts. Use query_database or list_databases to find view IDs. Only include the fields you want to change.",
+      "Read and write comments on Notion pages. Actions: 'get' lists all comments on a page, 'create' adds a new comment to a page, 'reply' responds to an existing comment thread. Use this for review workflows, task discussions, and leaving notes. Page-level comments appear in the page's comment sidebar.",
     inputSchema: {
       type: "object",
       properties: {
-        view_id: {
+        action: {
           type: "string",
-          description: "ID of the view to update.",
+          enum: ["get", "create", "reply"],
+          description: "What to do: get comments, create a new comment, or reply to a thread.",
         },
-        type: {
+        page_id: {
           type: "string",
-          enum: ["table", "board", "calendar", "list", "timeline", "gallery"],
-          description: "Change the view type.",
+          description: "Page ID (required for 'get' and 'create').",
         },
-        title: {
+        discussion_id: {
           type: "string",
-          description: "New name for the view.",
+          description: "Discussion thread ID (required for 'reply'). Found in 'get' results.",
         },
-        filter: {
-          type: "object",
-          description: "New filter for the view. Same syntax as query_database filters.",
-        },
-        sorts: {
-          type: "array",
-          description: "New sorts for the view. Same syntax as query_database sorts.",
-          items: { type: "object" },
+        text: {
+          type: "string",
+          description: "Comment text (required for 'create' and 'reply'). Supports plain text.",
         },
       },
-      required: ["view_id"],
+      required: ["action"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "upload_file",
+    description:
+      "Upload a file to Notion and attach it to a page as a block. Supports images (PNG, JPG, GIF, SVG, WebP), PDFs, and documents up to 20MB. Provide the file as a base64-encoded string or a URL. The file is uploaded to Notion's storage and embedded in the page. Use this for attaching product photos, generated images, reports, or any file to a Notion page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        page_id: {
+          type: "string",
+          description: "Page ID to attach the file to.",
+        },
+        filename: {
+          type: "string",
+          description: "Filename with extension (e.g., 'photo.png', 'report.pdf').",
+        },
+        url: {
+          type: "string",
+          description: "URL of the file to upload. The server will fetch and upload it. Use this OR base64, not both.",
+        },
+        base64: {
+          type: "string",
+          description: "Base64-encoded file content. Use this OR url, not both.",
+        },
+        content_type: {
+          type: "string",
+          description: "MIME type (e.g., 'image/png', 'application/pdf'). Auto-detected from filename if omitted.",
+        },
+      },
+      required: ["page_id", "filename"],
     },
     annotations: {
       readOnlyHint: false,
@@ -524,10 +585,12 @@ export async function executeTool(
         return await duplicatePage(client, args, workspace);
       case "move_page":
         return await movePage(client, args, workspace);
-      case "create_view":
-        return await createView(client, args, workspace);
-      case "update_view":
-        return await updateView(client, args, workspace);
+      case "views":
+        return await handleViews(client, args, workspace);
+      case "comments":
+        return await handleComments(client, args, workspace);
+      case "upload_file":
+        return await handleUploadFile(client, args, workspace);
       default:
         return errorResult(
           `Unknown tool: ${toolName}. Available tools: ${TOOL_DEFINITIONS.map((t) => t.name).join(", ")}`
@@ -692,7 +755,7 @@ async function getChildren(
     // Top-level: list all pages and databases via search
     const [pages, databases] = await Promise.all([
       client.searchAll("", { property: "object", value: "page" }, 100),
-      client.searchAll("", { property: "object", value: "database" }, 100),
+      client.searchAll("", { property: "object", value: "data_source" }, 100),
     ]);
 
     // Filter to workspace-level items (parent type = workspace)
@@ -1141,6 +1204,18 @@ async function createPage(
     );
   }
 
+  // Build icon/cover objects
+  const iconArg = args.icon ? String(args.icon) : null;
+  const coverUrl = args.cover_url ? String(args.cover_url) : null;
+  const icon = iconArg
+    ? isUrl(iconArg)
+      ? { type: "external", external: { url: iconArg } }
+      : { type: "emoji", emoji: iconArg }
+    : undefined;
+  const cover = coverUrl
+    ? { type: "external", external: { url: coverUrl } }
+    : undefined;
+
   let page;
 
   if (databaseId) {
@@ -1166,14 +1241,14 @@ async function createPage(
       );
     }
 
-    page = await client.createPage(databaseId, title, true);
+    page = await client.createPage(databaseId, title, true, { icon, cover });
     // Update with formatted properties (createPage only sets title)
     if (Object.keys(properties).length > 0) {
       await client.updatePage(page.id, { properties });
     }
   } else {
     // Create standalone page
-    page = await client.createPage(parentId, title, false);
+    page = await client.createPage(parentId, title, false, { icon, cover });
   }
 
   // Append content if provided
@@ -1209,16 +1284,20 @@ async function updatePage(
   const hasArchived = args.archived !== undefined;
   const hasAppendContent = args.append_content !== undefined;
   const hasReplaceContent = args.replace_content !== undefined;
+  const hasIcon = args.icon !== undefined;
+  const hasCover = args.cover_url !== undefined;
 
   if (
     !hasProperties &&
     !hasTitle &&
     !hasArchived &&
     !hasAppendContent &&
-    !hasReplaceContent
+    !hasReplaceContent &&
+    !hasIcon &&
+    !hasCover
   ) {
     return errorResult(
-      "At least one of properties, title, archived, append_content, or replace_content must be provided."
+      "At least one of properties, title, archived, append_content, replace_content, icon, or cover_url must be provided."
     );
   }
 
@@ -1272,18 +1351,35 @@ async function updatePage(
       actions.push(`title updated to "${args.title}"`);
     }
 
+    // Build icon/cover for this call
+    const iconVal = hasIcon ? buildIconObject(String(args.icon)) : undefined;
+    const coverVal = hasCover ? { type: "external", external: { url: String(args.cover_url) } } : undefined;
+
     await client.updatePage(pageId, {
       properties: notionProps,
       archived: hasArchived ? Boolean(args.archived) : undefined,
+      icon: iconVal,
+      cover: coverVal,
     });
-  } else if (hasArchived) {
+  } else if (hasArchived || hasIcon || hasCover) {
+    const iconVal = hasIcon ? buildIconObject(String(args.icon)) : undefined;
+    const coverVal = hasCover ? { type: "external", external: { url: String(args.cover_url) } } : undefined;
+
     await client.updatePage(pageId, {
-      archived: Boolean(args.archived),
+      archived: hasArchived ? Boolean(args.archived) : undefined,
+      icon: iconVal,
+      cover: coverVal,
     });
   }
 
   if (hasArchived) {
     actions.push(args.archived ? "archived" : "unarchived");
+  }
+  if (hasIcon) {
+    actions.push(`icon set to "${args.icon}"`);
+  }
+  if (hasCover) {
+    actions.push("cover image updated");
   }
 
   // Handle content replacement (delete all blocks then append)
@@ -1463,105 +1559,260 @@ async function movePage(
   );
 }
 
-async function createView(
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSOLIDATED TOOLS: VIEWS, COMMENTS, FILES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function handleViews(
   client: NotionClient,
   args: Record<string, unknown>,
   workspace: WorkspaceId
 ): Promise<McpToolResult> {
-  const dbId = normalizePageId(String(args.database_id || ""));
-  const viewType = String(args.type || "");
-  const title = String(args.title || "");
-
-  if (!dbId) {
-    return errorResult("database_id is required for create_view.");
-  }
-  if (!viewType) {
-    return errorResult("type is required for create_view.");
-  }
-  if (!title) {
-    return errorResult("title is required for create_view.");
-  }
-
+  const action = String(args.action || "");
   const validTypes = ["table", "board", "calendar", "list", "timeline", "gallery"];
-  if (!validTypes.includes(viewType)) {
-    return errorResult(
-      `Invalid view type "${viewType}". Must be one of: ${validTypes.join(", ")}.`
-    );
-  }
 
-  const body: Record<string, unknown> = {
-    database_id: dbId,
-    data_source_id: dbId,
-    type: viewType,
-    name: title,
-  };
+  switch (action) {
+    case "create": {
+      const dbId = normalizePageId(String(args.database_id || ""));
+      const viewType = String(args.type || "");
+      const title = String(args.title || "");
 
-  if (args.filter) {
-    body.filter = args.filter;
-  }
-  if (args.sorts) {
-    body.sorts = args.sorts;
-  }
+      if (!dbId) return errorResult("database_id is required for views create.");
+      if (!viewType) return errorResult("type is required for views create.");
+      if (!title) return errorResult("title is required for views create.");
+      if (!validTypes.includes(viewType)) {
+        return errorResult(`Invalid view type "${viewType}". Must be one of: ${validTypes.join(", ")}.`);
+      }
 
-  const view = await client.createView(body);
-  const viewId = (view.id as string).replace(/-/g, "");
+      // On v2025-09-03, the ID users pass is the data_source_id.
+      // The views API needs the REAL database_id from parent.database_id.
+      const { realDatabaseId, dataSourceId } = await client.resolveViewIds(dbId);
 
-  return textResult(
-    wsHeader(workspace) +
-      `View created: **${title}** (${viewType})\nView ID: \`${viewId}\`\nDatabase: \`${dbId}\``
-  );
-}
+      const reqBody: Record<string, unknown> = {
+        database_id: realDatabaseId,
+        data_source_id: dataSourceId,
+        type: viewType,
+        name: title,
+      };
+      if (args.filter) reqBody.filter = args.filter;
+      if (args.sorts) reqBody.sorts = args.sorts;
 
-async function updateView(
-  client: NotionClient,
-  args: Record<string, unknown>,
-  workspace: WorkspaceId
-): Promise<McpToolResult> {
-  const viewId = normalizePageId(String(args.view_id || ""));
-  if (!viewId) {
-    return errorResult("view_id is required for update_view.");
-  }
-
-  const updates: Record<string, unknown> = {};
-  const actions: string[] = [];
-
-  if (args.type !== undefined) {
-    const validTypes = ["table", "board", "calendar", "list", "timeline", "gallery"];
-    if (!validTypes.includes(String(args.type))) {
-      return errorResult(
-        `Invalid view type "${args.type}". Must be one of: ${validTypes.join(", ")}.`
+      const view = await client.createView(reqBody);
+      const viewId = (view.id as string).replace(/-/g, "");
+      return textResult(
+        wsHeader(workspace) +
+          `View created: **${title}** (${viewType})\nView ID: \`${viewId}\`\nDatabase: \`${dbId}\``
       );
     }
-    updates.type = args.type;
-    actions.push(`type changed to "${args.type}"`);
+
+    case "update": {
+      const viewId = normalizePageId(String(args.view_id || ""));
+      if (!viewId) return errorResult("view_id is required for views update.");
+
+      const updates: Record<string, unknown> = {};
+      const actions: string[] = [];
+
+      if (args.type !== undefined) {
+        if (!validTypes.includes(String(args.type))) {
+          return errorResult(`Invalid view type "${args.type}". Must be one of: ${validTypes.join(", ")}.`);
+        }
+        updates.type = args.type;
+        actions.push(`type changed to "${args.type}"`);
+      }
+      if (args.title !== undefined) {
+        updates.name = String(args.title);
+        actions.push(`title updated to "${args.title}"`);
+      }
+      if (args.filter !== undefined) {
+        updates.filter = args.filter;
+        actions.push("filter updated");
+      }
+      if (args.sorts !== undefined) {
+        updates.sorts = args.sorts;
+        actions.push("sorts updated");
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return errorResult("No changes specified. Provide type, title, filter, or sorts.");
+      }
+
+      await client.updateView(viewId, updates);
+      return textResult(wsHeader(workspace) + `View \`${viewId}\` updated: ${actions.join(", ")}.`);
+    }
+
+    case "delete": {
+      const viewId = normalizePageId(String(args.view_id || ""));
+      if (!viewId) return errorResult("view_id is required for views delete.");
+
+      await client.deleteView(viewId);
+      return textResult(wsHeader(workspace) + `View \`${viewId}\` deleted.`);
+    }
+
+    default:
+      return errorResult(`Unknown views action "${action}". Use: create, update, or delete.`);
+  }
+}
+
+async function handleComments(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const action = String(args.action || "");
+
+  switch (action) {
+    case "get": {
+      const pageId = normalizePageId(String(args.page_id || ""));
+      if (!pageId) return errorResult("page_id is required for comments get.");
+
+      const data = await client.getComments(pageId);
+
+      if (data.results.length === 0) {
+        return textResult(wsHeader(workspace) + "No comments on this page.");
+      }
+
+      const lines = [wsHeader(workspace) + `## Comments (${data.results.length})`, ""];
+
+      for (const comment of data.results) {
+        const author = comment.created_by?.id || "Unknown";
+        const time = comment.created_time;
+        const text = comment.rich_text
+          .map((rt) => rt.plain_text)
+          .join("");
+        const discussionId = comment.discussion_id;
+
+        lines.push(`**${author}** at ${time}`);
+        lines.push(`Discussion: \`${discussionId}\``);
+        lines.push(text);
+        lines.push("");
+      }
+
+      if (data.has_more) {
+        lines.push("*More comments available. Use start_cursor for pagination.*");
+      }
+
+      return textResult(lines.join("\n"));
+    }
+
+    case "create": {
+      const pageId = normalizePageId(String(args.page_id || ""));
+      const text = String(args.text || "");
+      if (!pageId) return errorResult("page_id is required for comments create.");
+      if (!text) return errorResult("text is required for comments create.");
+
+      const comment = await client.createComment({
+        parent: { page_id: pageId },
+        rich_text: [{ type: "text", text: { content: text } }],
+      });
+
+      return textResult(
+        wsHeader(workspace) +
+          `Comment added to page \`${pageId}\`.\nComment ID: \`${comment.id}\`\nDiscussion: \`${comment.discussion_id}\``
+      );
+    }
+
+    case "reply": {
+      const discussionId = String(args.discussion_id || "");
+      const text = String(args.text || "");
+      if (!discussionId) return errorResult("discussion_id is required for comments reply.");
+      if (!text) return errorResult("text is required for comments reply.");
+
+      const comment = await client.createComment({
+        discussion_id: discussionId,
+        rich_text: [{ type: "text", text: { content: text } }],
+      });
+
+      return textResult(
+        wsHeader(workspace) +
+          `Reply added to discussion \`${discussionId}\`.\nComment ID: \`${comment.id}\``
+      );
+    }
+
+    default:
+      return errorResult(`Unknown comments action "${action}". Use: get, create, or reply.`);
+  }
+}
+
+async function handleUploadFile(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const pageId = normalizePageId(String(args.page_id || ""));
+  const filename = String(args.filename || "");
+
+  if (!pageId) return errorResult("page_id is required for upload_file.");
+  if (!filename) return errorResult("filename is required for upload_file.");
+
+  // Detect content type from filename
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  const mimeMap: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", svg: "image/svg+xml", webp: "image/webp",
+    pdf: "application/pdf", doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    csv: "text/csv", txt: "text/plain", mp4: "video/mp4",
+  };
+  const contentType = args.content_type
+    ? String(args.content_type)
+    : mimeMap[ext] || "application/octet-stream";
+
+  // Get file data from URL or base64
+  let fileData: ArrayBuffer;
+  if (args.url) {
+    const response = await fetch(String(args.url));
+    if (!response.ok) {
+      return errorResult(`Failed to fetch file from URL: ${response.status} ${response.statusText}`);
+    }
+    fileData = await response.arrayBuffer();
+  } else if (args.base64) {
+    const binary = atob(String(args.base64));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    fileData = bytes.buffer;
+  } else {
+    return errorResult("Either url or base64 is required for upload_file.");
   }
 
-  if (args.title !== undefined) {
-    updates.name = String(args.title);
-    actions.push(`title updated to "${args.title}"`);
+  // Check size (20MB limit for simple upload)
+  const sizeMB = fileData.byteLength / (1024 * 1024);
+  if (sizeMB > 20) {
+    return errorResult(`File too large (${sizeMB.toFixed(1)}MB). Maximum is 20MB for simple upload.`);
   }
 
-  if (args.filter !== undefined) {
-    updates.filter = args.filter;
-    actions.push("filter updated");
-  }
+  // Step 1: Create upload object
+  const upload = await client.createFileUpload(filename, contentType);
 
-  if (args.sorts !== undefined) {
-    updates.sorts = args.sorts;
-    actions.push("sorts updated");
-  }
+  // Step 2: Send file content
+  await client.sendFileContent(upload.id, fileData, filename, contentType);
 
-  if (Object.keys(updates).length === 0) {
-    return errorResult(
-      "No changes specified. Provide type, title, filter, or sorts."
-    );
-  }
+  // Step 3: Attach to page as a file block
+  const isImage = contentType.startsWith("image/");
+  const block = isImage
+    ? {
+        type: "image",
+        image: {
+          type: "file_upload",
+          file_upload: { id: upload.id },
+        },
+      }
+    : {
+        type: "file",
+        file: {
+          type: "file_upload",
+          file_upload: { id: upload.id },
+          name: filename,
+        },
+      };
 
-  await client.updateView(viewId, updates);
+  await client.appendBlockChildren(pageId, [block]);
 
   return textResult(
     wsHeader(workspace) +
-      `View \`${viewId}\` updated: ${actions.join(", ")}.`
+      `File uploaded: **${filename}** (${sizeMB.toFixed(1)}MB, ${contentType})\nAttached to page \`${pageId}\` as ${isImage ? "image" : "file"} block.`
   );
 }
 
@@ -1579,6 +1830,16 @@ function errorResult(text: string): McpToolResult {
 
 function normalizePageId(id: string): string {
   return id.replace(/-/g, "").trim();
+}
+
+function isUrl(s: string): boolean {
+  return s.startsWith("http://") || s.startsWith("https://");
+}
+
+function buildIconObject(icon: string): Record<string, unknown> {
+  return isUrl(icon)
+    ? { type: "external", external: { url: icon } }
+    : { type: "emoji", emoji: icon };
 }
 
 function extractSearchTitle(item: Record<string, unknown>): string {
@@ -1608,6 +1869,8 @@ function formatParentInfo(
       return `Child of page \`${String(parent.page_id || "").replace(/-/g, "")}\``;
     case "database_id":
       return `Row in database \`${String(parent.database_id || "").replace(/-/g, "")}\``;
+    case "data_source_id":
+      return `Row in database \`${String(parent.data_source_id || "").replace(/-/g, "")}\``;
     case "block_id":
       return `Inside block \`${String(parent.block_id || "").replace(/-/g, "")}\``;
     default:

@@ -607,9 +607,49 @@ export async function fetchDatabaseSchema(
 
   const dbId = db.id as string;
 
+  // On v2025-09-03, properties moved from the database object to data_sources.
+  // Check db.properties first (old format), then fall back to data_sources.
+  let properties = db.properties as Record<string, PropertySchema> | undefined;
+
+  if (!properties || typeof properties !== "object" || Object.keys(properties).length === 0) {
+    // Try extracting properties from the first data_source
+    const dataSources = db.data_sources as Array<Record<string, unknown>> | undefined;
+    if (dataSources && dataSources.length > 0) {
+      const ds = dataSources[0];
+      // data_source might have properties directly embedded
+      if (ds.properties && typeof ds.properties === "object" &&
+          Object.keys(ds.properties as Record<string, unknown>).length > 0) {
+        properties = ds.properties as Record<string, PropertySchema>;
+      } else {
+        // Fetch the data_source by ID to get its properties
+        const dsId = (ds.id as string) || "";
+        if (dsId) {
+          try {
+            const fullDs = await client.request<Record<string, unknown>>(
+              "GET",
+              `/data_sources/${dsId}`
+            );
+            if (fullDs.properties && typeof fullDs.properties === "object") {
+              properties = fullDs.properties as Record<string, PropertySchema>;
+            }
+          } catch {
+            // data_source fetch failed - continue to error
+          }
+        }
+      }
+    }
+  }
+
+  if (!properties || typeof properties !== "object" || Object.keys(properties).length === 0) {
+    throw new Error(
+      `Database ${databaseId} returned no property schema. ` +
+      `API may have changed. Object type: ${db.object ?? "unknown"}`
+    );
+  }
+
   return {
     id: dbId.replace(/-/g, ""),
     title,
-    properties: db.properties as Record<string, PropertySchema>,
+    properties,
   };
 }

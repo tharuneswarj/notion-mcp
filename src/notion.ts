@@ -35,7 +35,7 @@ export class NotionClient {
     };
   }
 
-  private async request<T>(
+  async request<T>(
     method: string,
     path: string,
     body?: unknown
@@ -312,29 +312,44 @@ export class NotionClient {
   async getDatabase(
     databaseId: string
   ): Promise<Record<string, unknown>> {
+    // On v2025-09-03+, the ID might be a data_source_id rather than a real database_id.
+    // /databases/{data_source_id} returns {object: "database"} but WITHOUT properties.
+    // We detect this and resolve the real database_id via data_source search.
+    let result: Record<string, unknown>;
     try {
-      return await this.request<Record<string, unknown>>(
+      result = await this.request<Record<string, unknown>>(
         "GET",
         `/databases/${databaseId}`
       );
     } catch {
-      // On v2025-09-03+, the ID might be a data_source_id.
-      // Fetch the data_source to get the real database_id from parent.
-      const ds = await this.request<Record<string, unknown>>(
+      result = await this.request<Record<string, unknown>>(
         "GET",
         `/data_sources/${databaseId}`
       );
-      const parent = ds.parent as Record<string, string> | undefined;
-      const realDbId = parent?.database_id;
-      if (realDbId && realDbId.replace(/-/g, "") !== databaseId.replace(/-/g, "")) {
-        // Re-fetch using the real database_id (has properties)
+    }
+
+    // If the result has properties, it's a real database - return it
+    if (result.properties && typeof result.properties === "object" &&
+        Object.keys(result.properties as Record<string, unknown>).length > 0) {
+      return result;
+    }
+
+    // No properties - the ID is likely a data_source_id.
+    // Use the same resolution strategy as resolveViewIds: search all data_sources,
+    // find the matching one, extract parent.database_id, and fetch the real database.
+    try {
+      const { realDatabaseId } = await this.resolveViewIds(databaseId);
+      if (realDatabaseId !== databaseId.replace(/-/g, "")) {
         return this.request<Record<string, unknown>>(
           "GET",
-          `/databases/${realDbId}`
+          `/databases/${realDatabaseId}`
         );
       }
-      return ds;
+    } catch {
+      // resolveViewIds failed - return what we have
     }
+
+    return result;
   }
 
   /**

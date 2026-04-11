@@ -1316,8 +1316,9 @@ async function updatePage(
 
     if (hasProperties && Object.keys(flatProps).length > 0) {
       // Fetch the page to find its parent database
+      // On v2025-09-03, parent may have data_source_id instead of/alongside database_id
       const page = await client.getPage(pageId);
-      const parentDbId = page.parent?.database_id;
+      const parentDbId = page.parent?.database_id || page.parent?.data_source_id;
 
       if (parentDbId) {
         const schema = await fetchDatabaseSchema(client, parentDbId);

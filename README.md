@@ -4,7 +4,7 @@ A custom MCP (Model Context Protocol) server that connects multiple Notion works
 
 ## What It Does
 
-- Serves 9 MCP tools per workspace over Streamable HTTP (stateless JSON-RPC 2.0)
+- Serves 14 MCP tools per workspace over Streamable HTTP (stateless JSON-RPC 2.0)
 - Converts between Markdown and Notion blocks bidirectionally
 - Handles property formatting server-side - Claude sends flat key-values like `{"Status": "Done", "Priority": "P1"}`, the server converts to Notion's nested API format
 - Resolves relation and people fields by name (no UUIDs needed from Claude)
@@ -24,9 +24,9 @@ Each path is registered as a separate custom connector in Claude.ai. Claude rout
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
-## Tools (9 per workspace)
+## Tools (14 per workspace)
 
-### Read
+### Read (6)
 
 | Tool | Purpose |
 |------|---------|
@@ -37,13 +37,18 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 | `list_databases` | List all databases with property schemas |
 | `get_database_schema` | Full schema with option values for one database |
 
-### Write
+### Write (8)
 
 | Tool | Purpose |
 |------|---------|
 | `create_page` | Create standalone pages or database rows with typed properties |
 | `update_page` | Update properties, title, content (append/replace), or archive |
 | `update_database` | Add/rename/remove columns, update select options |
+| `create_database` | Create a new database with typed columns inside a parent page |
+| `duplicate_page` | Copy a page or database row with all properties and content |
+| `move_page` | Re-parent a page to another page or database |
+| `create_view` | Create database views (table, board, calendar, list, timeline, gallery) |
+| `update_view` | Modify a view's type, title, filters, or sorts |
 
 ## Setup
 
@@ -115,7 +120,6 @@ These are Notion API limitations, not server limitations:
 
 - Cannot create root-level workspace pages (internal integrations require a parent page)
 - Cannot set page fonts (default/serif/mono) - Notion UI-only setting
-- Database views (calendar, kanban, timeline) not yet implemented (API supports it - future addition)
 
 ## Tech Stack
 

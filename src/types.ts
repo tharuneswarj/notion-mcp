@@ -75,7 +75,13 @@ export interface NotionPage {
   url: string;
   last_edited_time: string;
   properties: Record<string, NotionProperty>;
-  parent: { type: string; page_id?: string; database_id?: string; workspace?: boolean };
+  parent: {
+    type: string;
+    page_id?: string;
+    database_id?: string;
+    data_source_id?: string;
+    workspace?: boolean;
+  };
 }
 
 export interface NotionProperty {
@@ -86,7 +92,7 @@ export interface NotionProperty {
 export interface NotionSearchResult {
   results: Array<{
     id: string;
-    object: string;
+    object: string; // "page" | "data_source" (was "database" on old API)
     url: string;
     last_edited_time: string;
     properties?: Record<string, NotionProperty>;
@@ -107,4 +113,41 @@ export interface NotionDatabaseQueryResponse {
   results: NotionPage[];
   has_more: boolean;
   next_cursor: string | null;
+}
+
+// ─── Comments ──────────────────────────────────────────────────────────────
+
+export interface NotionComment {
+  id: string;
+  parent: { type: string; page_id?: string; block_id?: string };
+  discussion_id: string;
+  rich_text: NotionRichText[];
+  created_time: string;
+  created_by: { id: string; object: string };
+}
+
+export interface NotionCommentsResponse {
+  results: NotionComment[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+// ─── File Upload ───────────────────────────────────────────────────────────
+
+export interface NotionFileUpload {
+  id: string;
+  status: string;
+  upload_url?: string;
+}
+
+// ─── Data Source (v2025-09-03+) ────────────────────────────────────────────
+
+export interface NotionDataSource {
+  id: string;
+  object: "data_source";
+  url: string;
+  title?: NotionRichText[];
+  properties?: Record<string, NotionProperty>;
+  parent?: { type: string; database_id?: string };
+  last_edited_time: string;
 }

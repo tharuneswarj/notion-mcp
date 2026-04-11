@@ -21,7 +21,7 @@ import { TOOL_DEFINITIONS, executeTool } from "./tools.js";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "notion-mcp-server";
-const SERVER_VERSION = "2.1.0";
+const SERVER_VERSION = "2.2.0";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // WORKER ENTRY POINT

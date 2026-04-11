@@ -257,6 +257,123 @@ export class NotionClient {
     );
   }
 
+  async createDatabase(
+    parentPageId: string,
+    title: string,
+    properties: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("POST", "/databases", {
+      parent: { type: "page_id", page_id: parentPageId },
+      title: [{ type: "text", text: { content: title } }],
+      properties,
+    });
+  }
+
+  // ─── Page Operations ────────────────────────────────────────────────────
+
+  async duplicatePage(pageId: string): Promise<NotionPage> {
+    // Notion doesn't have a native duplicate endpoint.
+    // We read the page + blocks, then recreate under the same parent.
+    const page = await this.getPage(pageId);
+    const parent = page.parent as Record<string, unknown>;
+
+    // Get the title
+    const props = page.properties as Record<string, Record<string, unknown>>;
+    let title = "Untitled (copy)";
+    for (const prop of Object.values(props)) {
+      if (prop.type === "title") {
+        const titleArr = prop.title as Array<{ plain_text: string }>;
+        if (titleArr?.length > 0) {
+          title = titleArr.map((t) => t.plain_text).join("") + " (copy)";
+        }
+        break;
+      }
+    }
+
+    // Determine parent for the copy
+    let parentBody: Record<string, unknown>;
+    if (parent.type === "database_id") {
+      parentBody = { database_id: parent.database_id as string };
+    } else if (parent.type === "page_id") {
+      parentBody = { page_id: parent.page_id as string };
+    } else {
+      throw new NotionApiError(400, "Cannot duplicate workspace-level pages", "/pages");
+    }
+
+    // For database rows, copy all writable properties
+    const newProps: Record<string, unknown> = {};
+    if (parent.type === "database_id") {
+      for (const [key, prop] of Object.entries(props)) {
+        const pType = prop.type as string;
+        // Skip read-only and auto-generated properties
+        if (["formula", "rollup", "created_time", "created_by",
+             "last_edited_time", "last_edited_by", "unique_id"].includes(pType)) {
+          continue;
+        }
+        // Copy the raw property value
+        if (prop[pType] !== undefined && prop[pType] !== null) {
+          newProps[key] = { [pType]: prop[pType] };
+        }
+      }
+      // Override title with "(copy)" suffix
+      for (const [key, prop] of Object.entries(props)) {
+        if ((prop.type as string) === "title") {
+          newProps[key] = { title: [{ text: { content: title } }] };
+          break;
+        }
+      }
+    } else {
+      newProps.title = { title: [{ text: { content: title } }] };
+    }
+
+    // Create the new page
+    const newPage = await this.request<NotionPage>("POST", "/pages", {
+      parent: parentBody,
+      properties: newProps,
+    });
+
+    // Copy block children
+    const blocks = await this.getAllBlockChildren(pageId, 2);
+    if (blocks.length > 0) {
+      const cleanBlocks = this.stripBlockIds(blocks);
+      await this.appendBlockChildren(newPage.id, cleanBlocks);
+    }
+
+    return newPage;
+  }
+
+  async movePage(
+    pageId: string,
+    newParentId: string,
+    parentType: "page_id" | "database_id" = "page_id"
+  ): Promise<NotionPage> {
+    return this.request<NotionPage>("PATCH", `/pages/${pageId}`, {
+      parent: { [parentType]: newParentId },
+    });
+  }
+
+  /**
+   * Strip IDs from blocks so they can be re-created.
+   * Recursively handles children.
+   */
+  private stripBlockIds(blocks: NotionBlock[]): unknown[] {
+    return blocks.map((block) => {
+      const type = block.type;
+      const data = block[type] as Record<string, unknown> | undefined;
+      if (!data) return { type, [type]: {} };
+
+      const clean: Record<string, unknown> = { type, [type]: { ...data } };
+
+      // Handle nested children
+      const children = (block as NotionBlock & { _children?: NotionBlock[] })._children;
+      if (children && children.length > 0) {
+        (clean[type] as Record<string, unknown>).children = this.stripBlockIds(children);
+      }
+
+      return clean;
+    });
+  }
+
   // ─── Users ──────────────────────────────────────────────────────────────
 
   async listUsers(): Promise<Array<{ id: string; name: string; type: string }>> {
@@ -277,6 +394,29 @@ export class NotionClient {
         name: u.name || "Unknown",
         type: u.type,
       }));
+  }
+
+  // ─── Views ───────────────────────────────────────────────────────────
+
+  async createView(
+    viewConfig: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "POST",
+      `/views`,
+      viewConfig
+    );
+  }
+
+  async updateView(
+    viewId: string,
+    updates: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "PATCH",
+      `/views/${viewId}`,
+      updates
+    );
   }
 
   // ─── Blocks (individual) ─────────────────────────────────────────────

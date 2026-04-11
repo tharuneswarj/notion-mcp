@@ -4,7 +4,7 @@
  *
  * Tools:
  *   READ:   search_pages, read_page, get_children, query_database, list_databases, get_database_schema
- *   WRITE:  create_page, update_page, update_database
+ *   WRITE:  create_page, update_page, update_database, create_database, duplicate_page, move_page, create_view, update_view
  */
 
 import { NotionClient, NotionApiError } from "./notion.js";
@@ -320,6 +320,170 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "create_database",
+    description:
+      "Create a new database inside a parent page. Define the database title and its columns (properties) upfront. Each property needs a name and type. Supports all property types: title, rich_text, number, select, multi_select, status, date, checkbox, url, email, phone_number, people, files, relation. After creation, use create_page with the new database_id to add rows.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        parent_id: {
+          type: "string",
+          description:
+            "Page ID to create the database under. Databases must live inside a page.",
+        },
+        title: {
+          type: "string",
+          description: "Title for the new database.",
+        },
+        properties: {
+          type: "object",
+          description:
+            'Property definitions for the database columns. Format: {"Property Name": {"type": "select", "select": {"options": [{"name": "Option1"}]}}}. Simple types: {"Notes": {"type": "rich_text"}, "Due": {"type": "date"}, "Done": {"type": "checkbox"}}. A title property is always created automatically.',
+        },
+      },
+      required: ["parent_id", "title"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "duplicate_page",
+    description:
+      "Duplicate a page or database row. Creates a copy under the same parent with '(copy)' appended to the title. For database rows, all writable properties are copied (formulas, rollups, and auto-generated fields are skipped). Page content (blocks) is also copied up to 2 levels deep.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        page_id: {
+          type: "string",
+          description: "ID of the page or database row to duplicate.",
+        },
+      },
+      required: ["page_id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "move_page",
+    description:
+      "Move a page to a new parent (another page or database). This re-parents the page - it keeps its content and ID but changes where it lives. When moving to a database, the page becomes a row in that database.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        page_id: {
+          type: "string",
+          description: "ID of the page to move.",
+        },
+        new_parent_id: {
+          type: "string",
+          description: "ID of the new parent page or database.",
+        },
+        parent_type: {
+          type: "string",
+          enum: ["page_id", "database_id"],
+          description:
+            "Type of the new parent. Use 'page_id' to move under a page, 'database_id' to move into a database. Default: 'page_id'.",
+        },
+      },
+      required: ["page_id", "new_parent_id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "create_view",
+    description:
+      "Create a new view for a database. Views control how database rows are displayed - as a table, board (kanban), calendar, list, timeline, or gallery. You can set filters, sorts, and which properties are visible. The database must already exist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        database_id: {
+          type: "string",
+          description: "Database ID to create the view for.",
+        },
+        type: {
+          type: "string",
+          enum: ["table", "board", "calendar", "list", "timeline", "gallery"],
+          description:
+            "View type. 'table' for spreadsheet, 'board' for kanban, 'calendar' for date-based, 'list' for simple list, 'timeline' for gantt-style, 'gallery' for card grid.",
+        },
+        title: {
+          type: "string",
+          description: "Name for the view (shown as a tab in Notion).",
+        },
+        filter: {
+          type: "object",
+          description:
+            'Optional Notion filter. Same syntax as query_database filters. Example: {"property": "Status", "status": {"equals": "In progress"}}.',
+        },
+        sorts: {
+          type: "array",
+          description:
+            'Optional sort array. Same syntax as query_database sorts. Example: [{"property": "Due Date", "direction": "ascending"}].',
+          items: { type: "object" },
+        },
+      },
+      required: ["database_id", "type", "title"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "update_view",
+    description:
+      "Update an existing database view. Can change the view type, title, filters, and sorts. Use query_database or list_databases to find view IDs. Only include the fields you want to change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        view_id: {
+          type: "string",
+          description: "ID of the view to update.",
+        },
+        type: {
+          type: "string",
+          enum: ["table", "board", "calendar", "list", "timeline", "gallery"],
+          description: "Change the view type.",
+        },
+        title: {
+          type: "string",
+          description: "New name for the view.",
+        },
+        filter: {
+          type: "object",
+          description: "New filter for the view. Same syntax as query_database filters.",
+        },
+        sorts: {
+          type: "array",
+          description: "New sorts for the view. Same syntax as query_database sorts.",
+          items: { type: "object" },
+        },
+      },
+      required: ["view_id"],
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -354,6 +518,16 @@ export async function executeTool(
         return await updatePage(client, args, workspace);
       case "update_database":
         return await updateDatabase(client, args, workspace);
+      case "create_database":
+        return await createDatabase(client, args, workspace);
+      case "duplicate_page":
+        return await duplicatePage(client, args, workspace);
+      case "move_page":
+        return await movePage(client, args, workspace);
+      case "create_view":
+        return await createView(client, args, workspace);
+      case "update_view":
+        return await updateView(client, args, workspace);
       default:
         return errorResult(
           `Unknown tool: ${toolName}. Available tools: ${TOOL_DEFINITIONS.map((t) => t.name).join(", ")}`
@@ -1207,6 +1381,187 @@ async function updateDatabase(
   return textResult(
     wsHeader(workspace) +
       `Database \`${dbId}\` updated: ${actions.join(", ")}.`
+  );
+}
+
+async function createDatabase(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const parentId = normalizePageId(String(args.parent_id || ""));
+  const title = String(args.title || "");
+
+  if (!parentId) {
+    return errorResult("parent_id is required for create_database.");
+  }
+  if (!title) {
+    return errorResult("title is required for create_database.");
+  }
+
+  // Build properties - always include a title column
+  const rawProps = (args.properties as Record<string, unknown>) || {};
+  const notionProps: Record<string, unknown> = {
+    Name: { title: {} }, // Every database needs a title property
+  };
+
+  for (const [name, config] of Object.entries(rawProps)) {
+    notionProps[name] = normalizePropertyConfig(config);
+  }
+
+  const db = await client.createDatabase(parentId, title, notionProps);
+  const dbId = (db.id as string).replace(/-/g, "");
+
+  return textResult(
+    wsHeader(workspace) +
+      `Database created: **${title}**\nID: \`${dbId}\`\nURL: ${db.url}\nProperties: ${Object.keys(notionProps).join(", ")}`
+  );
+}
+
+async function duplicatePage(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const pageId = normalizePageId(String(args.page_id || ""));
+  if (!pageId) {
+    return errorResult("page_id is required for duplicate_page.");
+  }
+
+  const newPage = await client.duplicatePage(pageId);
+  const newTitle = extractTitle(
+    newPage.properties as Record<string, Record<string, unknown>>
+  );
+
+  return textResult(
+    wsHeader(workspace) +
+      `Page duplicated: **${newTitle}**\nNew ID: \`${newPage.id.replace(/-/g, "")}\`\nURL: ${newPage.url}\nOriginal: \`${pageId}\``
+  );
+}
+
+async function movePage(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const pageId = normalizePageId(String(args.page_id || ""));
+  const newParentId = normalizePageId(String(args.new_parent_id || ""));
+  const parentType = (args.parent_type as "page_id" | "database_id") || "page_id";
+
+  if (!pageId) {
+    return errorResult("page_id is required for move_page.");
+  }
+  if (!newParentId) {
+    return errorResult("new_parent_id is required for move_page.");
+  }
+
+  const page = await client.movePage(pageId, newParentId, parentType);
+
+  return textResult(
+    wsHeader(workspace) +
+      `Page \`${pageId}\` moved to ${parentType === "database_id" ? "database" : "page"} \`${newParentId}\`.\nURL: ${page.url}`
+  );
+}
+
+async function createView(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const dbId = normalizePageId(String(args.database_id || ""));
+  const viewType = String(args.type || "");
+  const title = String(args.title || "");
+
+  if (!dbId) {
+    return errorResult("database_id is required for create_view.");
+  }
+  if (!viewType) {
+    return errorResult("type is required for create_view.");
+  }
+  if (!title) {
+    return errorResult("title is required for create_view.");
+  }
+
+  const validTypes = ["table", "board", "calendar", "list", "timeline", "gallery"];
+  if (!validTypes.includes(viewType)) {
+    return errorResult(
+      `Invalid view type "${viewType}". Must be one of: ${validTypes.join(", ")}.`
+    );
+  }
+
+  const body: Record<string, unknown> = {
+    database_id: dbId,
+    data_source_id: dbId,
+    type: viewType,
+    name: title,
+  };
+
+  if (args.filter) {
+    body.filter = args.filter;
+  }
+  if (args.sorts) {
+    body.sorts = args.sorts;
+  }
+
+  const view = await client.createView(body);
+  const viewId = (view.id as string).replace(/-/g, "");
+
+  return textResult(
+    wsHeader(workspace) +
+      `View created: **${title}** (${viewType})\nView ID: \`${viewId}\`\nDatabase: \`${dbId}\``
+  );
+}
+
+async function updateView(
+  client: NotionClient,
+  args: Record<string, unknown>,
+  workspace: WorkspaceId
+): Promise<McpToolResult> {
+  const viewId = normalizePageId(String(args.view_id || ""));
+  if (!viewId) {
+    return errorResult("view_id is required for update_view.");
+  }
+
+  const updates: Record<string, unknown> = {};
+  const actions: string[] = [];
+
+  if (args.type !== undefined) {
+    const validTypes = ["table", "board", "calendar", "list", "timeline", "gallery"];
+    if (!validTypes.includes(String(args.type))) {
+      return errorResult(
+        `Invalid view type "${args.type}". Must be one of: ${validTypes.join(", ")}.`
+      );
+    }
+    updates.type = args.type;
+    actions.push(`type changed to "${args.type}"`);
+  }
+
+  if (args.title !== undefined) {
+    updates.name = String(args.title);
+    actions.push(`title updated to "${args.title}"`);
+  }
+
+  if (args.filter !== undefined) {
+    updates.filter = args.filter;
+    actions.push("filter updated");
+  }
+
+  if (args.sorts !== undefined) {
+    updates.sorts = args.sorts;
+    actions.push("sorts updated");
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return errorResult(
+      "No changes specified. Provide type, title, filter, or sorts."
+    );
+  }
+
+  await client.updateView(viewId, updates);
+
+  return textResult(
+    wsHeader(workspace) +
+      `View \`${viewId}\` updated: ${actions.join(", ")}.`
   );
 }
 

@@ -260,7 +260,7 @@ update_page {
 update_page { "page_id": "page-id...", "archived": true }
 ```
 
-**CRITICAL:** `replace_content` deletes ALL existing blocks before writing. Use `append_content` when you want to add to existing content. When in doubt, use `append_content`.
+**CRITICAL:** `replace_content` deletes ALL existing blocks before writing, **including child page blocks**. In Notion, child pages appear as blocks inside their parent. If a page has nested child pages, using `replace_content` will permanently delete those child pages (not just unlink them - they get archived/trashed). **NEVER use `replace_content` on a page that has child pages.** Always use `append_content` instead, or use `get_children` first to check for nested pages. When in doubt, use `append_content`.
 
 #### `update_database`
 Modifies a database's structure (columns), not its rows. Use `update_page` for rows.
@@ -531,6 +531,7 @@ When providing `content`, `append_content`, or `replace_content`, use these patt
 | 30K character response limit | Server design | Large pages get truncated. Use targeted queries instead of full page reads. |
 | Relations resolve by title match | Server design | If two pages in the related DB have the same title, the first match wins. Use page ID for precision. |
 | People resolve by display name | Server design | Name must match exactly. Server caches user list for 5 minutes. |
+| `replace_content` deletes child pages | Notion API behavior | NEVER use replace_content on pages with child pages. Use append_content or get_children first to check. |
 | Upload capped at 20MB per file | Notion API | Split large files or use external links |
 | Views API: no update/delete for default view | Notion API | Only custom views can be modified or deleted |
 | Link previews not supported | Notion API | Use bookmark blocks (bare URLs) instead |

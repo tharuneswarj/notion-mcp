@@ -100,6 +100,7 @@ Pull specific rows from any database with filters and sorting.
 
 **Replace content**
 - "Replace all the content with this new version" (use with caution - deletes everything first)
+- ⚠️ **WARNING:** If a page has child pages nested under it, replacing content will permanently delete those child pages. Claude will always check for child pages before using replace.
 
 **Change icons and covers**
 - "Change the icon to 🚀"

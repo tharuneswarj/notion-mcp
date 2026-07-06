@@ -574,7 +574,7 @@ Read /mnt/.claude/skills/notion-server/SKILL.md first for tool usage patterns.
 |---|---|
 | **Deployment** | Cloudflare Workers (free tier) |
 | **URL** | `https://<your-worker>.<your-subdomain>.workers.dev` (or a custom domain route) |
-| **GitHub** | [tharuneswarj/notion-mcp-server](https://github.com/tharuneswarj/notion-mcp-server) |
+| **GitHub** | [tharuneswarj/notion-mcp](https://github.com/tharuneswarj/notion-mcp) |
 | **Protocol** | MCP over Streamable HTTP (JSON-RPC 2.0, no SDK) |
 | **Notion API** | v2025-09-03 |
 | **Server Version** | 3.0.1 |

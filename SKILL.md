@@ -1,13 +1,13 @@
 ---
 name: notion-server
-description: "Base skill for the custom Notion MCP server. Read this skill FIRST before performing any Notion operation on any workspace. It teaches Claude how to use the 15 custom MCP tools - the property format, workflow patterns, markdown syntax, and known limitations. Includes read, write, database views, comments, and file upload tools with icon/cover support. This skill is workspace-agnostic. Workspace-specific skills (waves-notion-manager, tharun-notion-manager, etc.) build on top of this. Triggers when Claude needs to read, write, search, query, or manage views and comments on any Notion workspace through the custom connectors (Notion-Workspace-Tharun, Notion-Workspace-Waves, Notion-Workspace-Koodu)."
+description: "Base skill for the custom Notion MCP server. Read this skill FIRST before performing any Notion operation on any workspace. It teaches Claude how to use the 15 custom MCP tools - the property format, workflow patterns, markdown syntax, and known limitations. Includes read, write, database views, comments, and file upload tools with icon/cover support. This skill is workspace-agnostic; workspace-specific skills build on top of it. Triggers when Claude needs to read, write, search, query, or manage views and comments on any Notion workspace served through this server's connectors."
 ---
 
 # Notion MCP Server - Base Skill
 
 ## What This Is
 
-This is the reference guide for the custom Notion MCP server deployed at `notion-mcp-server.tharun-mcp.workers.dev`. It connects 3 Notion workspaces to Claude through separate connectors. All workspace-specific skills (Waves, Tharun Personal, Koodu) depend on this skill for tool usage patterns.
+This is the reference guide for the custom Notion MCP server (a Cloudflare Worker you deploy yourself — see the README). It connects multiple Notion workspaces to Claude through separate connectors, one per workspace route. All workspace-specific skills depend on this skill for tool usage patterns.
 
 **Read this skill before any Notion operation. Workspace skills should reference this skill, not duplicate its content.**
 
@@ -60,11 +60,13 @@ On v2025-09-03, `GET /databases/{id}` returns NO properties - they moved into da
 
 Each workspace has its own connector. Claude routes to the right workspace by which connector's tools it calls.
 
-| Workspace | Connector Name | Tool Prefix | When to Use |
+| Workspace | Connector Name (example) | Tool Prefix | When to Use |
 |---|---|---|---|
-| Tharun Personal | Notion-Workspace-Tharun | `mcp__52757b90__` | Personal tasks, projects, learning, content, MCP infrastructure |
-| Waves Company | Notion-Workspace-Waves | `mcp__3b1e8119__` | Waves studio operations, products, orders, content, R&D |
-| Koodu Architecture | Notion-Workspace-Koodu | `mcp__2ae0488b__` | Architecture projects, tasks, clients, content, drawings |
+| Personal | Notion-Workspace-Personal | `mcp__<id-1>__` | Personal tasks, projects, learning, content |
+| Koodu Architecture | Notion-Workspace-Koodu | `mcp__<id-2>__` | Architecture projects, tasks, clients, drawings |
+| Waves | Notion-Workspace-Waves | `mcp__<id-3>__` | Studio operations, products, orders, R&D |
+
+(Tool prefixes are assigned by the MCP client per connector — substitute the ones from your own session.)
 
 **How to pick the connector:** Match the user's intent to the workspace. If the user says "update my tasks," use Tharun Personal. If they say "log the new lamp prototype," use Waves. If they say "mark the Koodu task as done," use Koodu. When ambiguous, ask.
 
@@ -458,9 +460,9 @@ When starting a conversation or working with an unfamiliar workspace:
 When a task reads from multiple workspaces (e.g., morning briefing):
 
 ```
-1. query_database on Tharun Personal tasks  (mcp__52757b90)
-2. query_database on Waves tasks            (mcp__3b1e8119)
-3. query_database on Koodu tasks            (mcp__2ae0488b)
+1. query_database on Personal tasks  (connector 1)
+2. query_database on Waves tasks     (connector 2)
+3. query_database on Koodu tasks     (connector 3)
 4. Compile results locally
 ```
 
@@ -526,7 +528,7 @@ When providing `content`, `append_content`, or `replace_content`, use these patt
 | Cannot set page fonts (default/serif/mono) | Notion API | Change in Notion UI manually |
 | Notion-hosted file blocks cannot be duplicated | Server design | duplicate_page skips images uploaded via Notion UI (only external URLs work) |
 | Cannot archive databases via API | Notion API | Only pages can be archived with update_page. Databases must be trashed manually in Notion UI. |
-| No authentication on server | Design choice | URL is obscure. Will add Cloudflare Access if needed. |
+| Bearer-token auth only | Server design | Set `MCP_ACCESS_TOKEN` via `wrangler secret put`; the server refuses all requests (503) if it is unset. |
 | Connector tool caching | Claude.ai behavior | If new tools don't appear after server update, disconnect and recreate connector |
 | 30K character response limit | Server design | Large pages get truncated. Use targeted queries instead of full page reads. |
 | Relations resolve by title match | Server design | If two pages in the related DB have the same title, the first match wins. Use page ID for precision. |
@@ -571,9 +573,8 @@ Read /mnt/.claude/skills/notion-server/SKILL.md first for tool usage patterns.
 | | |
 |---|---|
 | **Deployment** | Cloudflare Workers (free tier) |
-| **URL** | `https://notion-mcp-server.tharun-mcp.workers.dev` |
-| **GitHub** | `notion-mcp-server` repo |
+| **URL** | `https://<your-worker>.<your-subdomain>.workers.dev` (or a custom domain route) |
+| **GitHub** | [tharuneswarj/notion-mcp-server](https://github.com/tharuneswarj/notion-mcp-server) |
 | **Protocol** | MCP over Streamable HTTP (JSON-RPC 2.0, no SDK) |
 | **Notion API** | v2025-09-03 |
 | **Server Version** | 3.0.1 |
-| **Databases Connected** | 46 total (16 Personal + 16 Waves + 14 Koodu) |

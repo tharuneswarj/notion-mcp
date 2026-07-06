@@ -21,10 +21,19 @@ const MAX_RETRIES = 3;
 export class NotionClient {
   private token: string;
   private version: string;
+  /** Opaque per-token fingerprint (FNV-1a). Lets callers scope caches per
+   *  workspace without ever exposing the token itself. */
+  readonly cacheKey: string;
 
   constructor(token: string, version: string = "2025-09-03") {
     this.token = token;
     this.version = version;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < token.length; i++) {
+      h ^= token.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    this.cacheKey = h.toString(16);
   }
 
   private headers(): HeadersInit {

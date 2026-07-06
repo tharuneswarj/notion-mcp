@@ -199,9 +199,17 @@ async function handleJsonRpc(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function validateAuth(request: Request, env: Env): Response | null {
-  // If no MCP_ACCESS_TOKEN is configured, allow all requests (dev mode)
+  // Fail closed: a deployment without MCP_ACCESS_TOKEN would otherwise expose
+  // full read/write access to every connected Notion workspace.
   if (!env.MCP_ACCESS_TOKEN) {
-    return null;
+    return jsonResponse(
+      {
+        error:
+          "Server misconfigured: MCP_ACCESS_TOKEN is not set. " +
+          "Run: wrangler secret put MCP_ACCESS_TOKEN",
+      },
+      503
+    );
   }
 
   const authHeader = request.headers.get("Authorization");
@@ -214,11 +222,22 @@ function validateAuth(request: Request, env: Env): Response | null {
   }
 
   const [scheme, token] = authHeader.split(" ");
-  if (scheme !== "Bearer" || token !== env.MCP_ACCESS_TOKEN) {
+  if (scheme !== "Bearer" || !token || !timingSafeEqual(token, env.MCP_ACCESS_TOKEN)) {
     return jsonResponse({ error: "Invalid bearer token." }, 403);
   }
 
   return null;
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  // Length comparison leaks only the token length, not its contents.
+  if (aBytes.byteLength !== bBytes.byteLength) {
+    return false;
+  }
+  return crypto.subtle.timingSafeEqual(aBytes, bBytes);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

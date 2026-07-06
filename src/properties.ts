@@ -366,9 +366,10 @@ function formatFiles(value: unknown): unknown {
 // NAME RESOLUTION HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Cache for user lookups (workspace users rarely change)
-let userCache: UserInfo[] | null = null;
-let userCacheTimestamp = 0;
+// Cache for user lookups (workspace users rarely change).
+// Keyed per workspace token — all workspaces share one Worker isolate, so a
+// single global cache would bleed one workspace's user list into another.
+const userCaches = new Map<string, { users: UserInfo[]; timestamp: number }>();
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -438,13 +439,13 @@ export async function getWorkspaceUsers(
   client: NotionClient
 ): Promise<UserInfo[]> {
   const now = Date.now();
-  if (userCache && now - userCacheTimestamp < USER_CACHE_TTL) {
-    return userCache;
+  const cached = userCaches.get(client.cacheKey);
+  if (cached && now - cached.timestamp < USER_CACHE_TTL) {
+    return cached.users;
   }
 
   const users = await client.listUsers();
-  userCache = users;
-  userCacheTimestamp = now;
+  userCaches.set(client.cacheKey, { users, timestamp: now });
   return users;
 }
 

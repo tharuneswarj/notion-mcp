@@ -2,7 +2,8 @@
 
 export interface Env {
   NOTION_API_VERSION: string;
-  MCP_ACCESS_TOKEN: string;
+  /** Bearer token for MCP auth. Unset → server refuses all requests (503). */
+  MCP_ACCESS_TOKEN?: string;
   NOTION_TOKEN_PERSONAL?: string;
   NOTION_TOKEN_KOODU?: string;
   NOTION_TOKEN_WAVES?: string;

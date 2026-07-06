@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "notion-mcp-server",
-  "version": "1.0.0",
+  "version": "3.0.1",
   "description": "Unified Notion MCP server for multiple workspaces, deployed on Cloudflare Workers",
   "type": "module",
   "main": "src/index.ts",

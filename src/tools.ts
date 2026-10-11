@@ -220,7 +220,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
         properties: {
           type: "object",
           description:
-            'Flat key-value properties for database rows. Example: {"Status": "In progress", "Priority": "P1", "Due Date": "2026-04-15", "Assigned To": "Tharun"}. The server auto-formats these for Notion\'s API and resolves names to IDs for relation/people fields.',
+            'Flat key-value properties for database rows. Example: {"Status": "In progress", "Priority": "P1", "Due Date": "2026-04-15", "Assigned To": "Alex"}. The server auto-formats these for Notion\'s API and resolves names to IDs for relation/people fields.',
         },
         content: {
           type: "string",
@@ -609,14 +609,16 @@ export async function executeTool(
 // WORKSPACE LABEL
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const WORKSPACE_LABELS: Record<WorkspaceId, string> = {
-  personal: "Tharun Personal Workspace",
-  koodu: "Koodu Architecture Workspace",
-  waves: "Waves Company Workspace",
-};
+function wsLabel(workspace: WorkspaceId): string {
+  const name = workspace
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+  return `${name} Workspace`;
+}
 
 function wsHeader(workspace: WorkspaceId): string {
-  return `> **${WORKSPACE_LABELS[workspace]}**\n\n`;
+  return `> **${wsLabel(workspace)}**\n\n`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

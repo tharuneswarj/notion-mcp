@@ -4,12 +4,13 @@ export interface Env {
   NOTION_API_VERSION: string;
   /** Bearer token for MCP auth. Unset → server refuses all requests (503). */
   MCP_ACCESS_TOKEN?: string;
-  NOTION_TOKEN_PERSONAL?: string;
-  NOTION_TOKEN_KOODU?: string;
-  NOTION_TOKEN_WAVES?: string;
+  /** One NOTION_TOKEN_<WORKSPACE> secret per workspace; the set of secrets
+   *  defines which /notion/<workspace>/mcp routes exist. */
+  [key: string]: string | undefined;
 }
 
-export type WorkspaceId = "personal" | "koodu" | "waves";
+/** Workspace slug from the route path (lowercase letters, digits, hyphens). */
+export type WorkspaceId = string;
 
 // ─── JSON-RPC / MCP Protocol ────────────────────────────────────────────────
 

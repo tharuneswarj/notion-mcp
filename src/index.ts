@@ -2,12 +2,11 @@
  * Notion MCP Server - Cloudflare Worker Entry Point
  *
  * Serves MCP (Model Context Protocol) over Streamable HTTP for multiple
- * Notion workspaces under a single deployment at mcp.tha.run.
+ * Notion workspaces under a single deployment.
  *
  * URL structure:
- *   POST /notion/personal/mcp  → Personal workspace
- *   POST /notion/koodu/mcp     → Koodu Architecture workspace
- *   POST /notion/waves/mcp     → Waves Company workspace
+ *   POST /notion/<workspace>/mcp  → workspace whose token is stored in the
+ *                                   NOTION_TOKEN_<WORKSPACE> secret
  *
  * Protocol: MCP over Streamable HTTP (stateless JSON mode)
  *   - Each POST contains a JSON-RPC 2.0 message
@@ -44,19 +43,18 @@ export default {
           status: "ok",
           server: SERVER_NAME,
           version: SERVER_VERSION,
-          workspaces: ["personal", "koodu", "waves"],
         })
       );
     }
 
     // Parse workspace from path: /notion/{workspace}/mcp
-    const match = path.match(/^\/notion\/(personal|koodu|waves)\/mcp$/);
+    const match = path.match(/^\/notion\/([a-z0-9][a-z0-9-]*)\/mcp$/);
     if (!match) {
       return corsResponse(
         jsonResponse(
           {
             error: "Not found",
-            hint: "Valid endpoints: /notion/personal/mcp, /notion/koodu/mcp, /notion/waves/mcp",
+            hint: "Valid endpoints: /notion/<workspace>/mcp",
           },
           404
         )
@@ -77,9 +75,9 @@ export default {
       return corsResponse(
         jsonResponse(
           {
-            error: `Workspace "${workspace}" is not configured. Set the NOTION_TOKEN_${workspace.toUpperCase()} secret.`,
+            error: `Workspace "${workspace}" is not configured. Set the ${notionTokenSecretName(workspace)} secret.`,
           },
-          503
+          404
         )
       );
     }
@@ -244,15 +242,12 @@ function timingSafeEqual(a: string, b: string): boolean {
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+function notionTokenSecretName(workspace: WorkspaceId): string {
+  return `NOTION_TOKEN_${workspace.toUpperCase().replace(/-/g, "_")}`;
+}
+
 function getNotionToken(env: Env, workspace: WorkspaceId): string | undefined {
-  switch (workspace) {
-    case "personal":
-      return env.NOTION_TOKEN_PERSONAL;
-    case "koodu":
-      return env.NOTION_TOKEN_KOODU;
-    case "waves":
-      return env.NOTION_TOKEN_WAVES;
-  }
+  return env[notionTokenSecretName(workspace)];
 }
 
 function jsonRpcSuccess(id: string | number, result: unknown): JsonRpcResponse {

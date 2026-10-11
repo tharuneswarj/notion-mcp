@@ -62,13 +62,13 @@ Each workspace has its own connector. Claude routes to the right workspace by wh
 
 | Workspace | Connector Name (example) | Tool Prefix | When to Use |
 |---|---|---|---|
-| Personal | Notion-Workspace-Personal | `mcp__<id-1>__` | Personal tasks, projects, learning, content |
-| Koodu Architecture | Notion-Workspace-Koodu | `mcp__<id-2>__` | Architecture projects, tasks, clients, drawings |
-| Waves | Notion-Workspace-Waves | `mcp__<id-3>__` | Studio operations, products, orders, R&D |
+| Alpha | Notion-Workspace-Alpha | `mcp__<id-1>__` | Personal tasks, projects, learning |
+| Beta | Notion-Workspace-Beta | `mcp__<id-2>__` | Client projects, tasks, deliverables |
+| Gamma | Notion-Workspace-Gamma | `mcp__<id-3>__` | Operations, products, orders |
 
 (Tool prefixes are assigned by the MCP client per connector — substitute the ones from your own session.)
 
-**How to pick the connector:** Match the user's intent to the workspace. If the user says "update my tasks," use Tharun Personal. If they say "log the new lamp prototype," use Waves. If they say "mark the Koodu task as done," use Koodu. When ambiguous, ask.
+**How to pick the connector:** Match the user's intent to the workspace. If the user says "update my tasks," use the personal workspace. If they name a company or project ("mark the Beta task as done"), use that workspace. When ambiguous, ask.
 
 **Important:** MCP ID prefixes may change if connectors are recreated. If tools fail with "unknown tool," the connector may have been refreshed. Check the system-reminder's deferred tools list for current prefixes.
 
@@ -223,7 +223,7 @@ create_page {
 | Email | String | `"Email": "person@example.com"` |
 | Phone | String | `"Phone": "+1234567890"` |
 | Relation | String (name) | `"Project": "Project Name"` (server resolves name to ID) |
-| People | String (name) | `"Assignee": "Tharun"` (server resolves name to user ID) |
+| People | String (name) | `"Assignee": "Alex"` (server resolves name to user ID) |
 
 **Cannot create root-level workspace pages** - Notion API requires a parent page for internal integrations. Always provide `parent_id`.
 
@@ -460,9 +460,9 @@ When starting a conversation or working with an unfamiliar workspace:
 When a task reads from multiple workspaces (e.g., morning briefing):
 
 ```
-1. query_database on Personal tasks  (connector 1)
-2. query_database on Waves tasks     (connector 2)
-3. query_database on Koodu tasks     (connector 3)
+1. query_database on Alpha tasks  (connector 1)
+2. query_database on Beta tasks   (connector 2)
+3. query_database on Gamma tasks  (connector 3)
 4. Compile results locally
 ```
 
@@ -542,7 +542,7 @@ When providing `content`, `append_content`, or `replace_content`, use these patt
 
 ## For Workspace Skill Authors
 
-When writing a workspace-specific skill (e.g., `waves-notion-manager`, `tharun-notion-manager`):
+When writing a workspace-specific skill (e.g., `alpha-notion-manager`):
 
 ### 1. Reference This Skill
 
@@ -557,7 +557,7 @@ Read /mnt/.claude/skills/notion-server/SKILL.md first for tool usage patterns.
 - The connector name and tool prefix for your workspace
 - Database IDs and page IDs specific to your workspace
 - Business logic (what to update when, status meanings, workflow rules)
-- Cross-skill references (e.g., "for content updates, trigger waves-social-media-manager")
+- Cross-skill references (e.g., "for content updates, trigger alpha-social-media-manager")
 
 ### 3. What NOT to Duplicate
 

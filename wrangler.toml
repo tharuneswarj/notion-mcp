@@ -9,6 +9,5 @@ NOTION_API_VERSION = "2025-09-03"
 
 # Secrets (set via `wrangler secret put <NAME>`):
 # - MCP_ACCESS_TOKEN        (bearer token for MCP auth)
-# - NOTION_TOKEN_PERSONAL   (personal workspace integration token)
-# - NOTION_TOKEN_KOODU      (koodu workspace integration token)   [Phase 4]
-# - NOTION_TOKEN_WAVES      (waves workspace integration token)   [Phase 3]
+# - NOTION_TOKEN_<WORKSPACE> (one Notion integration token per workspace;
+#                             served at /notion/<workspace>/mcp)

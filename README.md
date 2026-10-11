@@ -1,8 +1,8 @@
 # Notion MCP Server
 
-A multi-workspace Notion MCP (Model Context Protocol) server that runs as a single Cloudflare Worker. One deployment serves any number of Notion workspaces, each on its own route, each with its own integration token — so one Claude can read and write across your personal workspace, your studio, and your company without the tokens ever meeting.
+A multi-workspace Notion MCP (Model Context Protocol) server that runs as a single Cloudflare Worker. One deployment serves any number of Notion workspaces, each on its own route, each with its own integration token — so one Claude can read and write across several workspaces without the tokens ever meeting.
 
-Built and used in production as part of an "AI layer" for running an architecture practice: the live deployment at `mcp.tha.run` routes three workspaces (personal, Koodu Architecture, Waves) into Claude via three connectors. Fork it, deploy your own Worker, plug in your own workspaces.
+Built and used in production, routing several workspaces into Claude through one connector each. Fork it, deploy your own Worker, plug in your own workspaces.
 
 ## What It Does
 
@@ -19,9 +19,9 @@ Built and used in production as part of an "AI layer" for running an architectur
 Claude.ai connectors                 Cloudflare Worker                Notion API
 ┌──────────────────────┐
 │ Notion-Workspace-A   │──┐
-├──────────────────────┤  │   POST /notion/personal/mcp ──┐
-│ Notion-Workspace-B   │──┼─▶ POST /notion/koodu/mcp    ──┼─▶ token per     ─▶ api.notion.com
-├──────────────────────┤  │   POST /notion/waves/mcp    ──┘   workspace
+├──────────────────────┤  │   POST /notion/alpha/mcp    ──┐
+│ Notion-Workspace-B   │──┼─▶ POST /notion/beta/mcp     ──┼─▶ token per     ─▶ api.notion.com
+├──────────────────────┤  │   POST /notion/gamma/mcp    ──┘   workspace
 │ Notion-Workspace-C   │──┘
 └──────────────────────┘        Bearer auth (MCP_ACCESS_TOKEN)
 ```
@@ -78,10 +78,10 @@ npx wrangler login
 #   openssl rand -base64 32
 npx wrangler secret put MCP_ACCESS_TOKEN
 
-# One Notion integration token per workspace
-npx wrangler secret put NOTION_TOKEN_PERSONAL
-npx wrangler secret put NOTION_TOKEN_KOODU
-npx wrangler secret put NOTION_TOKEN_WAVES
+# One Notion integration token per workspace. The secret name defines the route:
+# NOTION_TOKEN_ALPHA is served at /notion/alpha/mcp.
+npx wrangler secret put NOTION_TOKEN_ALPHA
+npx wrangler secret put NOTION_TOKEN_BETA
 
 npx wrangler deploy
 ```
@@ -92,17 +92,14 @@ npx wrangler deploy
 
 1. Create a Notion internal integration at [notion.so/my-integrations](https://notion.so/my-integrations) and share the relevant pages with it
 2. Store the token: `npx wrangler secret put NOTION_TOKEN_<WORKSPACE>`
-3. Register the workspace in code — four touchpoints, all small:
-   - `src/types.ts` — add to the `WorkspaceId` union and `Env` interface
-   - `src/index.ts` — add to the route regex, `getNotionToken()`, and the health-check list
-   - `src/tools.ts` — add a display label to the workspace-name map
-4. Deploy: `npx wrangler deploy`
-5. Register a custom connector in Claude.ai pointing to `/notion/<workspace>/mcp`
+3. Register a custom connector in Claude.ai pointing to `/notion/<workspace>/mcp`
+
+No code change or redeploy is needed: workspaces are defined entirely by which `NOTION_TOKEN_*` secrets exist, so workspace names never appear in the repository. The route slug is the secret suffix lowercased, with `_` written as `-` (`NOTION_TOKEN_SIDE_PROJECT` → `/notion/side-project/mcp`).
 
 ### Register Connector in Claude.ai
 
 1. Go to Claude.ai → Settings → Connectors → Add Custom Connector
-2. Name it descriptively (e.g., `Notion-Workspace-Personal`)
+2. Name it descriptively (e.g., `Notion-Workspace-Alpha`)
 3. URL: `https://<your-worker>.workers.dev/notion/<workspace>/mcp`
 4. Enable in conversations
 
@@ -111,13 +108,13 @@ npx wrangler deploy
 Once connected, the model works in flat key-values — the server does the Notion-API gymnastics:
 
 ```jsonc
-// Claude calls create_page on the koodu connector:
+// Claude calls create_page on one workspace's connector:
 {
   "database_id": "25e5a1b2c3...",
-  "title": "Site visit — Chettipalayam residence",
+  "title": "Site visit — Riverside residence",
   "properties": {
     "Status": "Scheduled",
-    "Assignee": "Tharun",        // resolved to a user ID by name
+    "Assignee": "Alex",          // resolved to a user ID by name
     "Project": "CH-04",          // relation resolved by title
     "Date": "2026-07-10"
   },
@@ -134,9 +131,7 @@ All configuration is in `wrangler.toml`. Secrets are stored in Cloudflare (never
 | Secret | Purpose |
 |--------|---------|
 | `MCP_ACCESS_TOKEN` | **Required.** Bearer token protecting every MCP route — server fails closed without it |
-| `NOTION_TOKEN_PERSONAL` | Personal workspace integration token |
-| `NOTION_TOKEN_KOODU` | Koodu workspace integration token |
-| `NOTION_TOKEN_WAVES` | Waves workspace integration token |
+| `NOTION_TOKEN_<WORKSPACE>` | One per workspace — the integration token served at `/notion/<workspace>/mcp` |
 
 ## Supported Markdown (Write)
 
